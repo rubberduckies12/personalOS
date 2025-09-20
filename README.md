@@ -1,7 +1,15 @@
 
-<p align="center">
-  <img src="https://readme-typing-svg.herokuapp.com?size=28&duration=4000&color=2EB67D&center=true&vCenter=true&lines=Thomas+A.+Rowe's+Personal+OS;Founder+%7C+Engineer+%7C+Investor;Building+for+5+Years+Ahead" />
-</p>
+<div align="center">
+
+<img src="https://readme-typing-svg.herokuapp.com?font=Fira+Code&size=30&duration=3000&pause=1000&color=2EB67D&center=true&vCenter=true&width=800&height=60&lines=Thomas+A.+Rowe's+Personal+OS;Founder+%7C+Engineer+%7C+Investor;Building+for+5+Years+Ahead" alt="Typing SVG" />
+
+---
+
+## 📊 Personal OS – Command Center
+
+**Welcome to my web-based operating system.**  
+*Where I manage everything that matters:*
+
 
 ---
 
@@ -20,18 +28,21 @@ It’s where I manage everything that matters:
 
 ---
 
+<div align="center">
+
 ## 📈 Live Metrics Theme
 
+```
 Revenue: ██████████▒▒▒▒▒▒▒▒ £72,000
-Users: ████████▒▒▒▒▒▒▒▒▒▒ 4,210
-Focus: ██████▒▒▒▒▒▒▒▒▒▒▒▒ 60%
+Users:   ████████▒▒▒▒▒▒▒▒▒▒ 4,210
+Focus:   ██████▒▒▒▒▒▒▒▒▒▒▒▒ 60%
+```
 
-yaml
-Copy code
-
-*(Dynamic metrics coming soon via API hooks)*  
+</div>
 
 ---
+
+<div align="center">
 
 ## 🛠️ Tech Stack
 
@@ -39,11 +50,13 @@ Copy code
   <img src="https://skillicons.dev/icons?i=react,nodejs,mongodb,python,flutter,git,figma" />
 </p>
 
-- **Frontend:** React (CRA → PWA)  
-- **Backend:** Node.js + Express  
-- **Database:** MongoDB  
-- **AI Layer:** GPT-4.5 API (planning, summaries, insights)  
-- **Trading:** Alpaca API  
+**Frontend:** React (CRA → PWA)  
+**Backend:** Node.js + Express  
+**Database:** MongoDB  
+**AI Layer:** GPT-4.5 API (planning, summaries, insights)  
+**Trading:** Alpaca API
+
+</div>
 
 ---
 
@@ -59,13 +72,20 @@ Copy code
 
 ---
 
+<div align="center">
+
 ## 🏦 Author
 
-**Thomas A. Rowe**  
-Founder • Engineer • Investor  
+### **Thomas A. Rowe**
+*Founder • Engineer • Investor*
 
-📍 London (soon)  
-📬 [LinkedIn](https://www.linkedin.com/in/your-link/) | [GitHub](https://github.com/your-username)  
+📍 **London (soon)**
+
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-0077B5?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/tommy-rowe-3a720b338)
+[![Website](https://img.shields.io/badge/Website-FF5722?style=for-the-badge&logo=firefox&logoColor=white)](https://rckts.co.uk)
+[![GitHub](https://img.shields.io/badge/GitHub-100000?style=for-the-badge&logo=github&logoColor=white)](https://github.com/rubberduckies12)
+
+</div>
 
 ---
 
