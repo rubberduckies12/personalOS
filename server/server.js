@@ -1,3 +1,6 @@
+// Load environment variables FIRST (before any other imports)
+require('dotenv').config();
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -11,6 +14,7 @@ const cookieParser = require('cookie-parser');
 const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
+const colors = require('colors');
 
 // Import middleware
 const { authenticateUser } = require('./middleware/auth');
@@ -18,7 +22,7 @@ const { authenticateUser } = require('./middleware/auth');
 // Import routes
 const registerRoute = require('./routes/register');
 const loginRoute = require('./routes/login');
-const aiRoute = require('./routes/ai');
+// const aiRoute = require('./routes/ai'); // ⚠️ Temporarily disabled - no API key yet
 const tasksRoute = require('./routes/tasks');
 const projectsRoute = require('./routes/projects');
 const goalsRoute = require('./routes/goals');
@@ -37,12 +41,13 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 const PORT = process.env.PORT || 5000;
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/personalos';
 const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
-const JWT_SECRET = process.env.JWT_SECRET
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // Validate required environment variables
 const requiredEnvVars = ['MONGODB_URI', 'JWT_SECRET'];
 if (NODE_ENV === 'production') {
-  requiredEnvVars.push('OPENAI_API_KEY', 'CLIENT_URL');
+  // requiredEnvVars.push('OPENAI_API_KEY', 'CLIENT_URL'); // ⚠️ AI temporarily disabled
+  requiredEnvVars.push('CLIENT_URL');
 }
 
 const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
@@ -146,11 +151,11 @@ app.use('/api/login', createRateLimit(
 ));
 
 // Very strict rate limiting for AI endpoints
-app.use('/api/ai', createRateLimit(
-  60 * 1000, // 1 minute
-  NODE_ENV === 'production' ? 20 : 100, // 20 AI requests per minute in prod
-  'AI request rate limit exceeded, please slow down'
-));
+// app.use('/api/ai', createRateLimit(
+//   60 * 1000, // 1 minute
+//   NODE_ENV === 'production' ? 20 : 100, // 20 AI requests per minute in prod
+//   'AI request rate limit exceeded, please slow down'
+// )); // ⚠️ Temporarily disabled - no AI route
 
 // Data sanitization
 app.use(mongoSanitize()); // Prevent NoSQL injection
@@ -239,7 +244,7 @@ app.get('/api/status', (req, res) => {
     timestamp: new Date().toISOString(),
     endpoints: {
       auth: 'operational',
-      ai: 'operational',
+      // ai: 'disabled', // ⚠️ Temporarily disabled - no API key yet
       tasks: 'operational',
       projects: 'operational',
       goals: 'operational',
@@ -248,8 +253,8 @@ app.get('/api/status', (req, res) => {
       finances: 'operational'
     },
     features: {
-      voice_chat: true,
-      ai_analysis: true,
+      voice_chat: false, // ⚠️ Disabled until AI is enabled
+      ai_analysis: false, // ⚠️ Disabled until AI is enabled
       file_uploads: true,
       real_time_sync: false // Add when implementing WebSockets
     }
@@ -269,7 +274,7 @@ app.use('/api/login', loginRoute);
 // ========================================
 
 // Apply authentication middleware to all protected routes
-app.use('/api/ai', authenticateUser, aiRoute);
+// app.use('/api/ai', authenticateUser, aiRoute); // ⚠️ Temporarily disabled - no API key yet
 app.use('/api/tasks', authenticateUser, tasksRoute);
 app.use('/api/projects', authenticateUser, projectsRoute);
 app.use('/api/goals', authenticateUser, goalsRoute);
@@ -314,14 +319,17 @@ if (NODE_ENV === 'production') {
 // ERROR HANDLING MIDDLEWARE
 // ========================================
 
-// Handle 404 for API routes
-app.use('/api/*', (req, res) => {
-  res.status(404).json({
-    error: 'API endpoint not found',
-    path: req.path,
-    method: req.method,
-    timestamp: new Date().toISOString()
-  });
+// Handle 404 for API routes - FIX: Removed the problematic /api/* pattern
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({
+      error: 'API endpoint not found',
+      path: req.path,
+      method: req.method,
+      timestamp: new Date().toISOString()
+    });
+  }
+  next();
 });
 
 // Global error handling middleware
@@ -399,12 +407,13 @@ app.use((err, req, res, next) => {
 const connectDB = async () => {
   try {
     const mongooseOptions = {
-      // Connection options
-      maxPoolSize: 10, // Maintain up to 10 socket connections
-      serverSelectionTimeoutMS: 5000, // Keep trying to send operations for 5 seconds
-      socketTimeoutMS: 45000, // Close sockets after 45 seconds of inactivity
-      bufferMaxEntries: 0, // Disable mongoose buffering
-      bufferCommands: false, // Disable mongoose buffering
+      // Connection options - FIXED: removed deprecated options
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+      // REMOVE THESE LINES - they're deprecated:
+      // bufferMaxEntries: 0,
+      // bufferCommands: false,
       
       // Optimize for production
       ...(NODE_ENV === 'production' && {
@@ -417,7 +426,7 @@ const connectDB = async () => {
 
     await mongoose.connect(MONGODB_URI, mongooseOptions);
     
-    console.log(`✅ MongoDB Connected: ${mongoose.connection.host}`);
+    console.log(`🔗 MongoDB Connected:`.green.bold + ` ${mongoose.connection.host}`.cyan.bold);
     
     // Handle connection events
     mongoose.connection.on('error', (err) => {
@@ -433,7 +442,7 @@ const connectDB = async () => {
     });
 
   } catch (error) {
-    console.error('❌ MongoDB connection failed:', error.message);
+    console.error('🔥 MongoDB connection failed:'.red.bold, error.message);
     
     if (NODE_ENV === 'production') {
       // Exit process with failure in production
@@ -450,30 +459,35 @@ const connectDB = async () => {
 // ========================================
 
 const gracefulShutdown = async (signal) => {
-  console.log(`\n🛑 ${signal} signal received. Starting graceful shutdown...`);
+  console.log(`\n🛑 ${signal} signal received. Starting graceful shutdown...`.yellow.bold);
   
-  // Close server
-  server.close(async () => {
-    console.log('✅ HTTP server closed');
-    
-    try {
-      // Close database connection
-      await mongoose.connection.close();
-      console.log('✅ MongoDB connection closed');
+  // Check if server exists before trying to close it
+  if (server) {
+    server.close(async () => {
+      console.log('✅ HTTP server closed'.green);
       
-      console.log('✅ Graceful shutdown completed');
-      process.exit(0);
-    } catch (error) {
-      console.error('❌ Error during graceful shutdown:', error);
-      process.exit(1);
-    }
-  });
+      try {
+        // Close database connection
+        await mongoose.connection.close();
+        console.log('✅ MongoDB connection closed'.green);
+        
+        console.log('✅ Graceful shutdown completed'.green.bold);
+        process.exit(0);
+      } catch (error) {
+        console.error('❌ Error during graceful shutdown:'.red.bold, error);
+        process.exit(1);
+      }
+    });
 
-  // Force close after 30 seconds
-  setTimeout(() => {
-    console.error('❌ Forceful shutdown due to timeout');
-    process.exit(1);
-  }, 30000);
+    // Force close after 30 seconds
+    setTimeout(() => {
+      console.error('❌ Forceful shutdown due to timeout'.red.bold);
+      process.exit(1);
+    }, 30000);
+  } else {
+    console.log('✅ No server to close, exiting gracefully');
+    process.exit(0);
+  }
 };
 
 // ========================================
@@ -482,48 +496,227 @@ const gracefulShutdown = async (signal) => {
 
 let server;
 
+// ========================================
+// STARTUP ANIMATIONS
+// ========================================
+
+// Typewriter utility function
+const typewriter = async (text, color = 'white', speed = 30) => {
+  // Apply color to entire text first, then type character by character
+  const coloredText = text[color] || text;
+  
+  for (let i = 0; i < text.length; i++) {
+    // Apply color to each character individually to avoid ANSI code issues
+    const char = text[i];
+    const coloredChar = char[color] || char;
+    process.stdout.write(coloredChar);
+    await new Promise(r => setTimeout(r, speed));
+  }
+};
+
+const typewriterLine = async (text, color = 'white', speed = 30) => {
+  await typewriter(text, color, speed);
+  console.log(); // New line
+};
+
+async function hackerIntro() {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()";
+  
+  console.clear();
+  await typewriterLine('\n🚀 INITIALIZING PERSONAL OS...', 'green', 50);
+  await typewriterLine('⚡ Running security protocols...\n', 'cyan', 40);
+  
+  for (let i = 0; i < 30; i++) {
+    let line = "";
+    for (let j = 0; j < 60; j++) {
+      line += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    console.log(line.green);
+    await new Promise(r => setTimeout(r, 50));
+  }
+  
+  // Add some dramatic pauses with status messages
+  await typewriterLine('\n🔐 Security protocols... PASSED', 'yellow', 40);
+  await new Promise(r => setTimeout(r, 500));
+  await typewriterLine('🛡️  Firewall initialization... COMPLETE', 'yellow', 40);
+  await new Promise(r => setTimeout(r, 500));
+  await typewriterLine('🔑 Authentication systems... ONLINE', 'yellow', 40);
+  await new Promise(r => setTimeout(r, 500));
+  await typewriterLine('✅ SYSTEM READY FOR LAUNCH\n', 'green', 30);
+  await new Promise(r => setTimeout(r, 1000));
+  
+  console.clear();
+}
+
+const showLoadingAnimation = () => {
+  return new Promise(resolve => {
+    const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+    let i = 0;
+    
+    const interval = setInterval(() => {
+      process.stdout.write(`\r${frames[i]} `.cyan.bold + 'Starting PersonalOS Server...'.white);
+      i = (i + 1) % frames.length;
+    }, 100);
+
+    setTimeout(() => {
+      clearInterval(interval);
+      process.stdout.write('\r' + ' '.repeat(50) + '\r'); // Clear line
+      resolve();
+    }, 2000);
+  });
+};
+
+// Typewriter effect for ASCII banner
+const showStartupBanner = async () => {
+  const bannerLines = [
+    '╔══════════════════════════════════════════════════════════════════════╗',
+    '║                                                                      ║',
+    '║ ███╗   ███╗ █████╗ ██████╗ ███████╗    ██████╗ ██╗   ██╗            ║',
+    '║ ████╗ ████║██╔══██╗██╔══██╗██╔════╝    ██╔══██╗╚██╗ ██╔╝            ║',
+    '║ ██╔████╔██║███████║██║  ██║█████╗      ██████╔╝ ╚████╔╝             ║',
+    '║ ██║╚██╔╝██║██╔══██║██║  ██║██╔══╝      ██╔══██╗  ╚██╔╝              ║',
+    '║ ██║ ╚═╝ ██║██║  ██║██████╔╝███████╗    ██████╔╝   ██║               ║',
+    '║ ╚═╝     ╚═╝╚═╝  ╚═╝╚═════╝ ╚══════╝    ╚═════╝    ╚═╝               ║',
+    '║                                                                      ║',
+    '║████████╗██╗  ██╗ ██████╗ ███╗   ███╗ █████╗ ███████╗                ║',
+    '║╚══██╔══╝██║  ██║██╔═══██╗████╗ ████║██╔══██╗██╔════╝                ║',
+    '║   ██║   ███████║██║   ██║██╔████╔██║███████║███████╗                ║',
+    '║   ██║   ██╔══██║██║   ██║██║╚██╔╝██║██╔══██║╚════██║                ║',
+    '║   ██║   ██║  ██║╚██████╔╝██║ ╚═╝ ██║██║  ██║███████║                ║',
+    '║   ╚═╝   ╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚══════╝                ║',
+    '║                                                                      ║',
+    '║           █████╗         ██████╗  ██████╗ ██╗    ██╗███████╗        ║',
+    '║          ██╔══██╗        ██╔══██╗██╔═══██╗██║    ██║██╔════╝        ║',
+    '║          ███████║        ██████╔╝██║   ██║██║ █╗ ██║█████╗          ║',
+    '║          ██╔══██║        ██╔══██╗██║   ██║██║███╗██║██╔══╝          ║',
+    '║          ██║  ██║ ██╗    ██║  ██║╚██████╔╝╚███╔███╔╝███████╗        ║',
+    '║          ╚═╝  ╚═╝ ╚═╝    ╚═╝  ╚═╝ ╚═════╝  ╚══╝╚══╝ ╚══════╝        ║',
+    '║                                                                      ║',
+    '║              🚀 Your Personal Operating System 🚀                    ║',
+    '║                   💻 Made BY Thomas A.Rowe 💻                       ║',
+    '║                                                                      ║',
+    '╚══════════════════════════════════════════════════════════════════════╝'
+  ];
+
+  for (const line of bannerLines) {
+    await typewriterLine(line, 'cyan', 10);
+    await new Promise(r => setTimeout(r, 50)); // Small pause between lines
+  }
+};
+
+const showServerInfo = async () => {
+  const serverLines = [
+    '',
+    '┌─────────────────── SERVER STATUS ───────────────────┐',
+    '│                                                     │'
+  ];
+
+  // Add status line
+  await typewriterLine(serverLines[0], 'white', 15);
+  await typewriterLine(serverLines[1], 'white', 15);
+  await typewriterLine(serverLines[2], 'white', 15);
+  
+  // Add dynamic content with proper colors
+  await typewriterLine(`│  🌟 Status: ONLINE                               │`, 'white', 15);
+  await typewriterLine(`│  🏠 Environment: ${NODE_ENV.toUpperCase()}                       │`, 'white', 15);
+  await typewriterLine(`│  🌐 URL: http://localhost:${PORT}                │`, 'white', 15);
+  await typewriterLine(`│  💾 Database: ${mongoose.connection.host || 'Disconnected'}                      │`, 'white', 15);
+  await typewriterLine(`│  📅 Started: ${new Date().toLocaleString()}       │`, 'white', 15);
+  await typewriterLine(`│  🔧 Node: ${process.version}                            │`, 'white', 15);
+  await typewriterLine('│                                                     │', 'white', 15);
+  await typewriterLine('└─────────────────────────────────────────────────────┘', 'white', 15);
+  
+  await new Promise(r => setTimeout(r, 100));
+};
+
+const showEndpoints = async () => {
+  await typewriterLine('\n📡 API ENDPOINTS', 'cyan', 20);
+  await typewriterLine('┌─────────────────────────────────────────────────────┐', 'gray', 10);
+  
+  const endpoints = [
+    { method: 'GET', path: '/health', desc: 'Health check', status: 'public' },
+    { method: 'GET', path: '/api/status', desc: 'API status', status: 'public' },
+    { method: 'POST', path: '/api/register', desc: 'User registration', status: 'public' },
+    { method: 'POST', path: '/api/login', desc: 'User authentication', status: 'public' },
+    { method: '*', path: '/api/tasks/*', desc: 'Task management', status: 'protected' },
+    { method: '*', path: '/api/projects/*', desc: 'Project tracking', status: 'protected' },
+    { method: '*', path: '/api/goals/*', desc: 'Goal management', status: 'protected' },
+    { method: '*', path: '/api/reading/*', desc: 'Reading lists', status: 'protected' },
+    { method: '*', path: '/api/skills/*', desc: 'Skill tracking', status: 'protected' },
+    { method: '*', path: '/api/finances/*', desc: 'Financial management', status: 'protected' },
+  ];
+
+  for (const endpoint of endpoints) {
+    const statusIcon = endpoint.status === 'public' ? '🌐' : '🔒';
+    const line = `│ ${statusIcon} ${endpoint.method.padEnd(4)} ${endpoint.path.padEnd(18)} ${endpoint.desc.padEnd(18)} ${endpoint.status} │`;
+    await typewriterLine(line, 'white', 8);
+    await new Promise(r => setTimeout(r, 50));
+  }
+  
+  await typewriterLine('└─────────────────────────────────────────────────────┘', 'gray', 10);
+};
+
+const showFooter = async () => {
+  const footerLines = [
+    '',
+    '┌─────────────────── FEATURES ────────────────────┐',
+    '│                                                 │',
+    '│  ✅ Authentication & Authorization              │',
+    '│  ✅ Rate Limiting & Security                    │',
+    '│  ✅ Database Connection                         │',
+    '│  ✅ Error Handling                              │',
+    '│  ✅ Request Validation                          │',
+    '│  ✅ CORS Protection                             │',
+    '│  ⚠️  AI Features: DISABLED (Add OpenAI API Key)   │',
+    '│                                                 │',
+    '└─────────────────────────────────────────────────┘'
+  ];
+
+  for (const line of footerLines) {
+    await typewriterLine(line, 'white', 15);
+    await new Promise(r => setTimeout(r, 80));
+  }
+  
+  await typewriterLine('\n🎯 READY TO SERVE!', 'green', 30);
+  await typewriterLine(`💡 Tip: Test with: curl http://localhost:${PORT}/health`, 'yellow', 20);
+  await typewriterLine('📚 Docs: Check /api/status for endpoint details', 'yellow', 20);
+  await typewriterLine('🔥 Hot tip: Use Ctrl+C to gracefully shutdown\n', 'yellow', 20);
+};
+
+// Update the startServer function to use async versions:
 const startServer = async () => {
   try {
+    // Show hacker intro FIRST
+    await hackerIntro();
+    
+    // Show loading animation
+    await showLoadingAnimation();
+    
     // Connect to database first
     await connectDB();
     
     // Start HTTP server
-    server = app.listen(PORT, () => {
-      console.log(`\n🚀 PersonalOS Server Running`);
-      console.log(`📊 Environment: ${NODE_ENV}`);
-      console.log(`🌐 Server: http://localhost:${PORT}`);
-      console.log(`💾 Database: ${mongoose.connection.host}`);
-      console.log(`📅 Started: ${new Date().toISOString()}`);
-      
-      if (NODE_ENV === 'development') {
-        console.log(`\n📋 Available Endpoints:`);
-        console.log(`   GET  /health              - Health check`);
-        console.log(`   GET  /api/status          - API status`);
-        console.log(`   POST /api/register        - User registration`);
-        console.log(`   POST /api/login           - User login`);
-        console.log(`   *    /api/ai/*            - AI endpoints (protected)`);
-        console.log(`   *    /api/tasks/*         - Tasks endpoints (protected)`);
-        console.log(`   *    /api/projects/*      - Projects endpoints (protected)`);
-        console.log(`   *    /api/goals/*         - Goals endpoints (protected)`);
-        console.log(`   *    /api/reading/*       - Reading endpoints (protected)`);
-        console.log(`   *    /api/skills/*        - Skills endpoints (protected)`);
-        console.log(`   *    /api/finances/*      - Finance endpoints (protected)`);
-        console.log(`\n🔐 All endpoints except auth require authentication`);
-      }
+    server = app.listen(PORT, async () => {
+      // Clear screen and show beautiful startup message with typewriter effect
+      console.clear();
+      await showStartupBanner();
+      await showServerInfo();
+      await showEndpoints();
+      await showFooter();
     });
 
     // Handle server errors
     server.on('error', (error) => {
-      console.error('❌ Server error:', error);
+      console.error('❌ Server error:'.red.bold, error);
       
       if (error.code === 'EADDRINUSE') {
-        console.error(`❌ Port ${PORT} is already in use`);
+        console.error(`❌ Port ${PORT} is already in use`.red.bold);
         process.exit(1);
       }
     });
 
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
+    console.error('❌ Failed to start server:'.red.bold, error);
     process.exit(1);
   }
 };

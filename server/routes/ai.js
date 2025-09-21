@@ -3,7 +3,7 @@ const OpenAI = require('openai');
 const router = express.Router();
 
 // Import all models
-const AiChatHistory = require('../models/AiChatHistory');
+const AiChatHistory = require('../models/AiChatHistoryModel');
 const Goal = require('../models/goalsModel');
 const Project = require('../models/projectsModel');
 const Task = require('../models/tasksModel');
