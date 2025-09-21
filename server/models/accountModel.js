@@ -23,18 +23,19 @@ const accountSchema = new mongoose.Schema({
     lowercase: true,
     trim: true,
     match: [
-      /^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/,
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
       'Please enter a valid email address'
     ]
   },
-  passwordHash: {
+  password: { // Changed from passwordHash to match your login route
     type: String,
     required: [true, 'Password is required'],
     minlength: [6, 'Password must be at least 6 characters long']
   },
-  isConfirmed: {
-    type: Boolean,
-    default: false,
+  status: {
+    type: String,
+    enum: ['active', 'inactive', 'suspended'],
+    default: 'inactive',
     required: true
   },
   confirmationToken: {
@@ -44,74 +45,98 @@ const accountSchema = new mongoose.Schema({
   confirmationTokenExpires: {
     type: Date,
     default: null
+  },
+  refreshToken: {
+    type: String,
+    default: null
+  },
+  lastLoginAt: {
+    type: Date,
+    default: null
+  },
+  loginCount: {
+    type: Number,
+    default: 0
+  },
+  loginAttempts: {
+    type: Number,
+    default: 0
+  },
+  lockUntil: {
+    type: Date
+  },
+  passwordResetToken: {
+    type: String,
+    default: null
+  },
+  passwordResetExpires: {
+    type: Date,
+    default: null
+  },
+  passwordChangedAt: {
+    type: Date
+  },
+  avatar: {
+    type: String,
+    default: null
+  },
+  preferences: {
+    theme: {
+      type: String,
+      enum: ['light', 'dark', 'auto'],
+      default: 'light'
+    },
+    notifications: {
+      email: { type: Boolean, default: true },
+      push: { type: Boolean, default: false }
+    },
+    privacy: {
+      profileVisible: { type: Boolean, default: false },
+      dataSharing: { type: Boolean, default: false }
+    }
+  },
+  registrationIP: {
+    type: String
   }
 }, {
-  timestamps: true, // Adds createdAt and updatedAt fields
+  timestamps: true,
   collection: 'accounts'
 });
 
-// Index for faster email lookups
+// Indexes for performance and security
 accountSchema.index({ email: 1 });
 accountSchema.index({ confirmationToken: 1 });
+accountSchema.index({ passwordResetToken: 1 });
+accountSchema.index({ refreshToken: 1 });
+accountSchema.index({ status: 1 });
 
-// Pre-save middleware to hash password
-accountSchema.pre('save', async function(next) {
-  // Only hash the password if it has been modified (or is new)
-  if (!this.isModified('passwordHash')) return next();
-
-  try {
-    // Hash password with cost of 12
-    const salt = await bcrypt.genSalt(12);
-    this.passwordHash = await bcrypt.hash(this.passwordHash, salt);
-    next();
-  } catch (error) {
-    next(error);
-  }
+// Virtual for account lockout status
+accountSchema.virtual('isLocked').get(function() {
+  return !!(this.lockUntil && this.lockUntil > Date.now());
 });
-
-// Instance method to check password
-accountSchema.methods.comparePassword = async function(candidatePassword) {
-  try {
-    return await bcrypt.compare(candidatePassword, this.passwordHash);
-  } catch (error) {
-    throw new Error('Password comparison failed');
-  }
-};
 
 // Instance method to get full name
 accountSchema.methods.getFullName = function() {
   return `${this.firstName} ${this.lastName}`;
 };
 
-// Instance method to get public profile (without password)
+// Instance method to get public profile
 accountSchema.methods.toPublicProfile = function() {
   const account = this.toObject();
-  delete account.passwordHash;
+  delete account.password;
   delete account.confirmationToken;
+  delete account.passwordResetToken;
+  delete account.refreshToken;
+  delete account.loginAttempts;
+  delete account.lockUntil;
   return account;
 };
 
-// Instance method to generate confirmation token
-accountSchema.methods.generateConfirmationToken = function() {
-  const crypto = require('crypto');
-  this.confirmationToken = crypto.randomBytes(32).toString('hex');
-  this.confirmationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
-  return this.confirmationToken;
-};
-
-// Instance method to confirm account
-accountSchema.methods.confirmAccount = function() {
-  this.isConfirmed = true;
-  this.confirmationToken = null;
-  this.confirmationTokenExpires = null;
-};
-
-// Static method to find by email
+// Static methods
 accountSchema.statics.findByEmail = function(email) {
   return this.findOne({ email: email.toLowerCase() });
 };
 
-// Static method to find by confirmation token
 accountSchema.statics.findByConfirmationToken = function(token) {
   return this.findOne({
     confirmationToken: token,

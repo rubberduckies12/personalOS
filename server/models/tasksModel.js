@@ -325,7 +325,7 @@ taskSchema.statics.getOverdue = function(userId) {
     isArchived: false,
     status: { $ne: 'completed' },
     deadline: { $lt: new Date() }
-  }).sort({ deadline: 1 });
+  });
 };
 
 taskSchema.statics.getDueToday = function(userId) {
@@ -338,7 +338,7 @@ taskSchema.statics.getDueToday = function(userId) {
     isArchived: false,
     status: { $ne: 'completed' },
     deadline: { $gte: startOfDay, $lte: endOfDay }
-  }).sort({ deadline: 1 });
+  });
 };
 
 taskSchema.statics.getByProject = function(userId, projectId) {
@@ -420,10 +420,21 @@ taskSchema.methods.addNote = function(content) {
 };
 
 taskSchema.methods.updateStatus = function(newStatus, actualTime = null) {
+  const oldStatus = this.status;
   this.status = newStatus;
+  
+  // Set timestamps
+  if (newStatus === 'in_progress' && !this.startedAt) {
+    this.startedAt = new Date();
+  } else if (newStatus === 'completed' && !this.completedAt) {
+    this.completedAt = new Date();
+  }
+  
+  // Update actual time if provided
   if (actualTime !== null) {
     this.actualTime = actualTime;
   }
+  
   return this.save();
 };
 
@@ -437,28 +448,60 @@ taskSchema.methods.archive = function() {
   return this.save();
 };
 
-taskSchema.methods.createRecurringInstance = function() {
-  if (!this.recurring?.isRecurring || !this.recurring.nextDue) {
+taskSchema.methods.createRecurringInstance = async function() {
+  if (!this.recurring?.isRecurring) {
     throw new Error('Task is not set up for recurring');
   }
   
-  const newTask = new this.constructor({
+  // Calculate next due date
+  const nextDue = new Date(this.completedAt || new Date());
+  switch (this.recurring.frequency) {
+    case 'daily':
+      nextDue.setDate(nextDue.getDate() + this.recurring.interval);
+      break;
+    case 'weekly':
+      nextDue.setDate(nextDue.getDate() + (7 * this.recurring.interval));
+      break;
+    case 'monthly':
+      nextDue.setMonth(nextDue.getMonth() + this.recurring.interval);
+      break;
+    case 'yearly':
+      nextDue.setFullYear(nextDue.getFullYear() + this.recurring.interval);
+      break;
+  }
+  
+  // Create new task instance
+  const newTaskData = {
     ...this.toObject(),
     _id: undefined,
     status: 'not_started',
     startedAt: null,
     completedAt: null,
-    deadline: this.recurring.nextDue,
-    subtasks: this.subtasks.map(st => ({ ...st, completed: false, completedAt: null })),
+    deadline: nextDue,
+    subtasks: this.subtasks.map(st => ({ 
+      ...st, 
+      completed: false, 
+      completedAt: null 
+    })),
     notes: [],
+    recurring: {
+      ...this.recurring,
+      nextDue: null
+    },
     createdAt: undefined,
     updatedAt: undefined
-  });
+  };
   
-  // Clear the nextDue to prevent duplicate creation
-  this.recurring.nextDue = null;
+  const newTask = new this.constructor(newTaskData);
   
-  return Promise.all([this.save(), newTask.save()]);
+  // Update current task's next due
+  this.recurring.nextDue = nextDue;
+  
+  // Save both tasks
+  await this.save();
+  await newTask.save();
+  
+  return [this, newTask]; // Return format expected by route
 };
 
 const Task = mongoose.model('Task', taskSchema);

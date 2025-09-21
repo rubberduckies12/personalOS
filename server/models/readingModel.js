@@ -1,5 +1,37 @@
 const mongoose = require('mongoose');
 
+const readingSessionSchema = new mongoose.Schema({
+  date: {
+    type: Date,
+    required: true,
+    default: Date.now,
+    index: true
+  },
+  duration: {
+    type: Number, // minutes
+    required: true,
+    min: 0
+  },
+  pagesRead: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  startPage: {
+    type: Number,
+    min: 0
+  },
+  endPage: {
+    type: Number,
+    min: 0
+  },
+  notes: {
+    type: String,
+    trim: true,
+    maxLength: 500
+  }
+});
+
 const readingSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -15,26 +47,27 @@ const readingSchema = new mongoose.Schema({
   },
   author: {
     type: String,
-    required: true,
     trim: true,
-    maxLength: 200
+    maxLength: 200,
+    default: ''
   },
   description: {
     type: String,
-    required: true,
     trim: true,
-    maxLength: 2000
+    maxLength: 2000,
+    default: ''
   },
-  totalChapters: {
-    type: Number,
-    required: true,
-    min: 1
+  type: {
+    type: String,
+    enum: ['book', 'article', 'audiobook', 'magazine', 'paper', 'other'],
+    default: 'book',
+    index: true
   },
   status: {
     type: String,
     required: true,
-    enum: ['not_started', 'reading', 'completed', 'on_hold', 'abandoned'],
-    default: 'not_started',
+    enum: ['to_read', 'reading', 'completed', 'on_hold', 'abandoned'],
+    default: 'to_read',
     index: true
   },
   genre: {
@@ -55,6 +88,11 @@ const readingSchema = new mongoose.Schema({
       'romance',
       'fantasy',
       'mystery',
+      'psychology',
+      'economics',
+      'politics',
+      'religion',
+      'art',
       'other'
     ],
     default: 'other'
@@ -64,94 +102,27 @@ const readingSchema = new mongoose.Schema({
     enum: ['low', 'medium', 'high'],
     default: 'medium'
   },
-  chapters: [{
-    chapterNumber: {
-      type: Number,
-      required: true,
-      min: 1
-    },
-    title: {
-      type: String,
-      trim: true,
-      maxLength: 200
-    },
-    summary: {
-      type: String,
-      trim: true,
-      maxLength: 1000,
-      required: function() {
-        return this.completed;
-      }
-    },
-    keyTakeaways: [{
-      type: String,
-      trim: true,
-      maxLength: 300
-    }],
-    notes: [{
-      content: {
-        type: String,
-        required: true,
-        maxLength: 500
-      },
-      pageNumber: {
-        type: Number,
-        min: 1
-      },
-      createdAt: {
-        type: Date,
-        default: Date.now
-      }
-    }],
-    completed: {
-      type: Boolean,
-      default: false
-    },
-    completedAt: {
-      type: Date
-    },
-    readingTime: {
-      type: Number, // minutes
-      min: 0
-    }
-  }],
-  overallSummary: {
-    type: String,
-    trim: true,
-    maxLength: 2000,
-    required: function() {
-      return this.status === 'completed';
-    }
-  },
-  overallRating: {
+  totalPages: {
     type: Number,
-    min: 1,
-    max: 5
+    min: 1
   },
-  keyLessons: [{
-    type: String,
-    trim: true,
-    maxLength: 500
-  }],
-  quotes: [{
-    text: {
-      type: String,
-      required: true,
-      maxLength: 500
-    },
-    pageNumber: {
-      type: Number,
-      min: 1
-    },
-    chapterNumber: {
-      type: Number,
-      min: 1
-    },
-    addedAt: {
-      type: Date,
-      default: Date.now
-    }
-  }],
+  currentPage: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  progressPercentage: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 100
+  },
+  averagePageTime: {
+    type: Number, // minutes per page - user customizable
+    default: 3,
+    min: 0.5,
+    max: 30
+  },
   isbn: {
     type: String,
     trim: true
@@ -161,52 +132,47 @@ const readingSchema = new mongoose.Schema({
     trim: true,
     maxLength: 200
   },
-  publishedYear: {
-    type: Number,
-    min: 1000,
-    max: new Date().getFullYear() + 10
-  },
-  totalPages: {
-    type: Number,
-    min: 1
-  },
-  format: {
-    type: String,
-    enum: ['physical', 'ebook', 'audiobook'],
-    default: 'physical'
-  },
-  startedAt: {
+  publishedDate: {
     type: Date
   },
-  completedAt: {
-    type: Date
+  targetDate: {
+    type: Date,
+    index: true
   },
-  totalReadingTime: {
-    type: Number, // total minutes spent reading
-    default: 0
+  goalId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Goal',
+    index: true
   },
   tags: [{
     type: String,
     trim: true,
     lowercase: true
   }],
-  recommendations: [{
-    bookTitle: {
-      type: String,
-      required: true,
-      trim: true
-    },
-    author: {
-      type: String,
-      required: true,
-      trim: true
-    },
-    reason: {
-      type: String,
-      trim: true,
-      maxLength: 300
-    }
-  }],
+  rating: {
+    type: Number,
+    min: 1,
+    max: 5
+  },
+  review: {
+    type: String,
+    trim: true,
+    maxLength: 2000
+  },
+  notes: {
+    type: String,
+    trim: true,
+    maxLength: 2000
+  },
+  startedAt: {
+    type: Date,
+    index: true
+  },
+  completedAt: {
+    type: Date,
+    index: true
+  },
+  sessions: [readingSessionSchema],
   isPublic: {
     type: Boolean,
     default: false
@@ -217,212 +183,80 @@ const readingSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// Indexes for better query performance
+// CRITICAL PERFORMANCE INDEXES
+// Basic user filtering
+readingSchema.index({ userId: 1 });
+
+// Status filtering with compound indexes
 readingSchema.index({ userId: 1, status: 1 });
-readingSchema.index({ userId: 1, genre: 1 });
-readingSchema.index({ userId: 1, createdAt: -1 });
-readingSchema.index({ author: 1 });
-readingSchema.index({ genre: 1, status: 1 });
+readingSchema.index({ userId: 1, status: 1, completedAt: -1 });
+readingSchema.index({ userId: 1, status: 1, updatedAt: -1 });
 
-// Virtual for reading progress percentage
-readingSchema.virtual('progressPercentage').get(function() {
-  if (!this.chapters || this.chapters.length === 0) return 0;
-  const completedChapters = this.chapters.filter(chapter => chapter.completed).length;
-  return Math.round((completedChapters / this.totalChapters) * 100);
+// Dashboard query optimization
+readingSchema.index({ userId: 1, type: 1, status: 1 });
+readingSchema.index({ userId: 1, genre: 1, completedAt: -1 });
+
+// Heatmap and session queries
+readingSchema.index({ userId: 1, 'sessions.date': -1 });
+readingSchema.index({ 'sessions.date': 1 }, { sparse: true });
+
+// Timeline and analytics
+readingSchema.index({ userId: 1, startedAt: 1, completedAt: 1 });
+readingSchema.index({ userId: 1, targetDate: 1 });
+
+// Completed items for aggregations (partial index for performance)
+readingSchema.index({ 
+  userId: 1, 
+  completedAt: -1 
+}, { 
+  partialFilterExpression: { status: 'completed' } 
 });
 
-// Virtual for chapters completed count
-readingSchema.virtual('chaptersCompleted').get(function() {
-  if (!this.chapters) return 0;
-  return this.chapters.filter(chapter => chapter.completed).length;
+// Search optimization
+readingSchema.index({ 
+  userId: 1,
+  title: 'text', 
+  author: 'text', 
+  description: 'text' 
+}, {
+  weights: { title: 10, author: 5, description: 1 }
 });
 
-// Virtual for current chapter
-readingSchema.virtual('currentChapter').get(function() {
-  if (!this.chapters) return null;
-  return this.chapters.find(chapter => !chapter.completed) || null;
+// Compound index for dashboard overview queries
+readingSchema.index({ 
+  userId: 1, 
+  status: 1, 
+  type: 1,
+  completedAt: -1 
 });
 
-// Virtual for next chapter number
-readingSchema.virtual('nextChapterNumber').get(function() {
-  const completed = this.chaptersCompleted;
-  return completed < this.totalChapters ? completed + 1 : null;
+// Virtual for reading velocity
+readingSchema.virtual('readingVelocity').get(function() {
+  if (!this.startedAt || this.currentPage <= 0) return 0;
+  const daysReading = Math.ceil((new Date() - new Date(this.startedAt)) / (1000 * 60 * 60 * 24));
+  return daysReading > 0 ? Math.round(this.currentPage / daysReading * 10) / 10 : 0;
 });
 
-// Virtual for average reading time per chapter
-readingSchema.virtual('avgReadingTimePerChapter').get(function() {
-  if (!this.chapters || this.chapters.length === 0) return 0;
-  const chaptersWithTime = this.chapters.filter(ch => ch.readingTime > 0);
-  if (chaptersWithTime.length === 0) return 0;
-  const totalTime = chaptersWithTime.reduce((sum, ch) => sum + ch.readingTime, 0);
-  return Math.round(totalTime / chaptersWithTime.length);
+// Virtual for estimated completion time
+readingSchema.virtual('estimatedTimeRemaining').get(function() {
+  if (!this.totalPages || this.currentPage >= this.totalPages) return 0;
+  const remainingPages = this.totalPages - this.currentPage;
+  return Math.round(remainingPages * this.averagePageTime);
 });
 
-// Pre-save middleware
+// Virtual for overdue status
+readingSchema.virtual('isOverdue').get(function() {
+  return this.targetDate && 
+         new Date(this.targetDate) < new Date() && 
+         this.status !== 'completed';
+});
+
+// Pre-save middleware to calculate progress
 readingSchema.pre('save', function(next) {
-  // Auto-populate chapters array if not exists
-  if (!this.chapters || this.chapters.length === 0) {
-    this.chapters = Array.from({ length: this.totalChapters }, (_, index) => ({
-      chapterNumber: index + 1,
-      completed: false,
-      notes: [],
-      keyTakeaways: []
-    }));
+  if (this.totalPages && this.totalPages > 0) {
+    this.progressPercentage = Math.round((this.currentPage / this.totalPages) * 100);
   }
-  
-  // Update status based on progress
-  const completedChapters = this.chapters.filter(ch => ch.completed).length;
-  
-  if (completedChapters === 0 && this.status === 'reading') {
-    // If no chapters completed but status is reading, keep it
-  } else if (completedChapters > 0 && this.status === 'not_started') {
-    this.status = 'reading';
-    if (!this.startedAt) {
-      this.startedAt = new Date();
-    }
-  } else if (completedChapters === this.totalChapters && this.status !== 'completed') {
-    this.status = 'completed';
-    this.completedAt = new Date();
-  }
-  
-  // Calculate total reading time
-  this.totalReadingTime = this.chapters.reduce((total, chapter) => {
-    return total + (chapter.readingTime || 0);
-  }, 0);
-  
   next();
 });
 
-// Static methods
-readingSchema.statics.getByUser = function(userId, filters = {}) {
-  const query = { userId, ...filters };
-  return this.find(query).sort({ createdAt: -1 });
-};
-
-readingSchema.statics.getByStatus = function(userId, status) {
-  return this.find({ userId, status }).sort({ createdAt: -1 });
-};
-
-readingSchema.statics.getByGenre = function(userId, genre) {
-  return this.find({ userId, genre }).sort({ priority: -1, createdAt: -1 });
-};
-
-readingSchema.statics.getCurrentlyReading = function(userId) {
-  return this.find({ userId, status: 'reading' }).sort({ updatedAt: -1 });
-};
-
-readingSchema.statics.getCompleted = function(userId) {
-  return this.find({ userId, status: 'completed' }).sort({ completedAt: -1 });
-};
-
-readingSchema.statics.getToRead = function(userId) {
-  return this.find({ userId, status: 'not_started' }).sort({ priority: -1, createdAt: -1 });
-};
-
-readingSchema.statics.searchBooks = function(userId, searchTerm) {
-  const regex = new RegExp(searchTerm, 'i');
-  return this.find({
-    userId,
-    $or: [
-      { title: regex },
-      { author: regex },
-      { description: regex },
-      { tags: { $in: [regex] } }
-    ]
-  }).sort({ createdAt: -1 });
-};
-
-// Instance methods
-readingSchema.methods.startReading = function() {
-  this.status = 'reading';
-  if (!this.startedAt) {
-    this.startedAt = new Date();
-  }
-  return this.save();
-};
-
-readingSchema.methods.completeChapter = function(chapterNumber, summary, readingTime, keyTakeaways = []) {
-  const chapter = this.chapters.find(ch => ch.chapterNumber === chapterNumber);
-  if (!chapter) {
-    throw new Error('Chapter not found');
-  }
-  
-  if (!summary || summary.trim().length === 0) {
-    throw new Error('Chapter summary is required to mark chapter as complete');
-  }
-  
-  chapter.summary = summary;
-  chapter.completed = true;
-  chapter.completedAt = new Date();
-  chapter.readingTime = readingTime || 0;
-  chapter.keyTakeaways = keyTakeaways;
-  
-  return this.save();
-};
-
-readingSchema.methods.addChapterNote = function(chapterNumber, content, pageNumber) {
-  const chapter = this.chapters.find(ch => ch.chapterNumber === chapterNumber);
-  if (!chapter) {
-    throw new Error('Chapter not found');
-  }
-  
-  chapter.notes.push({ content, pageNumber });
-  return this.save();
-};
-
-readingSchema.methods.addQuote = function(text, pageNumber, chapterNumber) {
-  this.quotes.push({ text, pageNumber, chapterNumber });
-  return this.save();
-};
-
-readingSchema.methods.completeBook = function(overallSummary, rating, keyLessons = []) {
-  if (!overallSummary || overallSummary.trim().length === 0) {
-    throw new Error('Overall summary is required to complete the book');
-  }
-  
-  const incompletedChapters = this.chapters.filter(ch => !ch.completed);
-  if (incompletedChapters.length > 0) {
-    throw new Error('All chapters must be completed before finishing the book');
-  }
-  
-  this.overallSummary = overallSummary;
-  this.overallRating = rating;
-  this.keyLessons = keyLessons;
-  this.status = 'completed';
-  this.completedAt = new Date();
-  
-  return this.save();
-};
-
-readingSchema.methods.addRecommendation = function(bookTitle, author, reason) {
-  this.recommendations.push({ bookTitle, author, reason });
-  return this.save();
-};
-
-readingSchema.methods.updateStatus = function(newStatus) {
-  this.status = newStatus;
-  
-  if (newStatus === 'reading' && !this.startedAt) {
-    this.startedAt = new Date();
-  } else if (newStatus === 'completed' && !this.completedAt) {
-    this.completedAt = new Date();
-  }
-  
-  return this.save();
-};
-
-readingSchema.methods.getChapterSummaries = function() {
-  return this.chapters
-    .filter(ch => ch.completed && ch.summary)
-    .sort((a, b) => a.chapterNumber - b.chapterNumber)
-    .map(ch => ({
-      chapterNumber: ch.chapterNumber,
-      title: ch.title,
-      summary: ch.summary,
-      keyTakeaways: ch.keyTakeaways
-    }));
-};
-
-const Reading = mongoose.model('Reading', readingSchema);
-
-module.exports = Reading;
+module.exports = mongoose.model('Reading', readingSchema);
