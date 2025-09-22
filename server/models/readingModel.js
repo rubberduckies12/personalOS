@@ -183,34 +183,12 @@ const readingSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// CRITICAL PERFORMANCE INDEXES
-// Basic user filtering
-readingSchema.index({ userId: 1 });
-
-// Status filtering with compound indexes
-readingSchema.index({ userId: 1, status: 1 });
+// Optimized compound indexes for efficient queries
 readingSchema.index({ userId: 1, status: 1, completedAt: -1 });
-readingSchema.index({ userId: 1, status: 1, updatedAt: -1 });
-
-// Dashboard query optimization
-readingSchema.index({ userId: 1, type: 1, status: 1 });
+readingSchema.index({ userId: 1, type: 1, status: 1, completedAt: -1 });
 readingSchema.index({ userId: 1, genre: 1, completedAt: -1 });
-
-// Heatmap and session queries
-readingSchema.index({ userId: 1, 'sessions.date': -1 });
-readingSchema.index({ 'sessions.date': 1 }, { sparse: true });
-
-// Timeline and analytics
 readingSchema.index({ userId: 1, startedAt: 1, completedAt: 1 });
 readingSchema.index({ userId: 1, targetDate: 1 });
-
-// Completed items for aggregations (partial index for performance)
-readingSchema.index({ 
-  userId: 1, 
-  completedAt: -1 
-}, { 
-  partialFilterExpression: { status: 'completed' } 
-});
 
 // Search optimization
 readingSchema.index({ 
@@ -220,14 +198,6 @@ readingSchema.index({
   description: 'text' 
 }, {
   weights: { title: 10, author: 5, description: 1 }
-});
-
-// Compound index for dashboard overview queries
-readingSchema.index({ 
-  userId: 1, 
-  status: 1, 
-  type: 1,
-  completedAt: -1 
 });
 
 // Virtual for reading velocity

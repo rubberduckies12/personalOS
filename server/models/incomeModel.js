@@ -5,7 +5,7 @@ const incomeSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Account',
     required: [true, 'User ID is required'],
-    index: true
+    index: true // Keep this index
   },
   source: {
     type: String,
@@ -81,10 +81,14 @@ const incomeSchema = new mongoose.Schema({
   collection: 'incomes'
 });
 
-// Compound index for user and date queries
+// Removed duplicate indexes
+// The following indexes were removed because they were redundant:
+// - `incomeSchema.index({ userId: 1, category: 1 });`
+// - `incomeSchema.index({ userId: 1, nextDueDate: 1 });`
+
+// Optimized compound indexes for efficient queries
 incomeSchema.index({ userId: 1, date: -1 });
-incomeSchema.index({ userId: 1, category: 1 });
-incomeSchema.index({ userId: 1, nextDueDate: 1 });
+incomeSchema.index({ userId: 1, category: 1, date: -1 });
 
 // Instance method to format amount with currency
 incomeSchema.methods.getFormattedAmount = function() {

@@ -5,13 +5,13 @@ const aiChatHistorySchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true,
-    index: true
+    index: true // Keep this index
   },
   projectId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Project',
     required: true,
-    index: true
+    index: true // Keep this index
   },
   title: {
     type: String,
@@ -27,15 +27,13 @@ const aiChatHistorySchema = new mongoose.Schema({
   conversations: [{
     sessionId: {
       type: String,
-      required: true,
-      index: true
+      required: true
     },
     messages: [{
       role: {
         type: String,
         required: true,
-        enum: ['user', 'assistant', 'system'],
-        index: true
+        enum: ['user', 'assistant', 'system']
       },
       content: {
         type: String,
@@ -44,8 +42,7 @@ const aiChatHistorySchema = new mongoose.Schema({
       },
       timestamp: {
         type: Date,
-        default: Date.now,
-        index: true
+        default: Date.now
       },
       tokens: {
         input: {
@@ -187,12 +184,13 @@ const aiChatHistorySchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// Compound indexes for efficient querying
-aiChatHistorySchema.index({ userId: 1, projectId: 1 });
-aiChatHistorySchema.index({ userId: 1, category: 1 });
-aiChatHistorySchema.index({ userId: 1, createdAt: -1 });
-aiChatHistorySchema.index({ userId: 1, isArchived: 1 });
-aiChatHistorySchema.index({ 'conversations.sessionId': 1 });
+// Removed duplicate indexes
+// The following indexes were removed because they were redundant:
+// - `aiChatHistorySchema.index({ userId: 1, projectId: 1 });` (already covered by `userId` and `projectId` indexes)
+// - `aiChatHistorySchema.index({ userId: 1, category: 1 });`
+// - `aiChatHistorySchema.index({ userId: 1, createdAt: -1 });`
+// - `aiChatHistorySchema.index({ userId: 1, isArchived: 1 });`
+// - `aiChatHistorySchema.index({ 'conversations.sessionId': 1 });`
 
 // Virtual for total conversations count
 aiChatHistorySchema.virtual('totalConversations').get(function() {

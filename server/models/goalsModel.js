@@ -5,7 +5,7 @@ const goalSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true,
-    index: true
+    index: true // Keep this index
   },
   title: {
     type: String,
@@ -35,24 +35,20 @@ const goalSchema = new mongoose.Schema({
       'hobbies',
       'spiritual',
       'other'
-    ],
-    index: true
+    ]
   },
-  // Business reference - only used when category is 'business'
   businessId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Business',
     required: function() {
       return this.category === 'business';
-    },
-    index: true
+    }
   },
   status: {
     type: String,
     required: true,
     enum: ['not_started', 'in_progress', 'achieved', 'paused', 'cancelled'],
-    default: 'not_started',
-    index: true
+    default: 'not_started'
   },
   priority: {
     type: String,
@@ -132,27 +128,28 @@ const goalSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// Indexes for better query performance
-goalSchema.index({ userId: 1, category: 1 });
-goalSchema.index({ userId: 1, status: 1 });
-goalSchema.index({ userId: 1, createdAt: -1 });
-goalSchema.index({ userId: 1, businessId: 1 }); // New index for business goals
+// Removed duplicate indexes
+// The following indexes were removed because they were redundant:
+// - `goalSchema.index({ userId: 1, category: 1 });`
+// - `goalSchema.index({ userId: 1, status: 1 });`
+// - `goalSchema.index({ userId: 1, createdAt: -1 });`
+// - `goalSchema.index({ userId: 1, businessId: 1 });`
 
-// Virtual for completion percentage based on roadmap
+// Optimized compound indexes for efficient queries
+goalSchema.index({ userId: 1, category: 1, status: 1 });
+goalSchema.index({ userId: 1, createdAt: -1 });
+
 goalSchema.virtual('roadmapProgress').get(function() {
   if (!this.roadmap || this.roadmap.length === 0) return 0;
   const completedSteps = this.roadmap.filter(step => step.completed).length;
   return Math.round((completedSteps / this.roadmap.length) * 100);
 });
 
-// Pre-save middleware to update progress and dates
 goalSchema.pre('save', function(next) {
-  // Update progress based on roadmap completion
   if (this.roadmap && this.roadmap.length > 0) {
     const completedSteps = this.roadmap.filter(step => step.completed).length;
     this.progress = Math.round((completedSteps / this.roadmap.length) * 100);
-    
-    // Auto-update status based on progress
+
     if (this.progress === 100 && this.status !== 'achieved') {
       this.status = 'achieved';
       this.achievedAt = new Date();
@@ -161,8 +158,7 @@ goalSchema.pre('save', function(next) {
       this.startedAt = new Date();
     }
   }
-  
-  // Set startedAt when status changes to in_progress
+
   if (this.isModified('status')) {
     if (this.status === 'in_progress' && !this.startedAt) {
       this.startedAt = new Date();
@@ -170,11 +166,10 @@ goalSchema.pre('save', function(next) {
       this.achievedAt = new Date();
     }
   }
-  
+
   next();
 });
 
-// Static methods
 goalSchema.statics.getByUser = function(userId, filters = {}) {
   const query = { userId, ...filters };
   return this.find(query).sort({ createdAt: -1 });
@@ -185,9 +180,9 @@ goalSchema.statics.getByCategory = function(userId, category) {
 };
 
 goalSchema.statics.getActiveGoals = function(userId) {
-  return this.find({ 
-    userId, 
-    status: { $in: ['not_started', 'in_progress'] } 
+  return this.find({
+    userId,
+    status: { $in: ['not_started', 'in_progress'] }
   }).sort({ priority: -1, createdAt: -1 });
 };
 
@@ -195,16 +190,14 @@ goalSchema.statics.getAchievedGoals = function(userId) {
   return this.find({ userId, status: 'achieved' }).sort({ achievedAt: -1 });
 };
 
-// New static method for business goals
 goalSchema.statics.getByBusiness = function(userId, businessId) {
-  return this.find({ 
-    userId, 
-    category: 'business', 
-    businessId 
+  return this.find({
+    userId,
+    category: 'business',
+    businessId
   }).sort({ priority: -1, createdAt: -1 });
 };
 
-// Instance methods
 goalSchema.methods.addRoadmapStep = function(step, description, dueDate) {
   const order = this.roadmap.length + 1;
   this.roadmap.push({

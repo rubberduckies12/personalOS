@@ -25,7 +25,6 @@ const taskSchema = new mongoose.Schema({
     default: 'not_started',
     index: true
   },
-  // Eisenhower Matrix - Urgency and Importance
   urgency: {
     type: String,
     required: true,
@@ -52,7 +51,6 @@ const taskSchema = new mongoose.Schema({
     type: Number, // minutes
     min: 0
   },
-  // Linking capabilities
   linkedTo: {
     type: {
       type: String,
@@ -81,7 +79,7 @@ const taskSchema = new mongoose.Schema({
       }
     },
     milestoneIndex: {
-      type: Number, // For project milestones
+      type: Number,
       min: 0
     }
   },
@@ -213,15 +211,24 @@ const taskSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// Compound indexes for efficient querying
-taskSchema.index({ userId: 1, status: 1 });
-taskSchema.index({ userId: 1, urgency: 1, importance: 1 });
-taskSchema.index({ userId: 1, deadline: 1 });
-taskSchema.index({ userId: 1, category: 1 });
-taskSchema.index({ userId: 1, 'linkedTo.type': 1 });
-taskSchema.index({ userId: 1, 'linkedTo.projectId': 1 });
-taskSchema.index({ userId: 1, 'linkedTo.goalId': 1 });
-taskSchema.index({ userId: 1, 'linkedTo.businessId': 1 });
+// Removed duplicate indexes
+// The following indexes were removed because they were redundant:
+// - `taskSchema.index({ userId: 1, status: 1 });`
+// - `taskSchema.index({ userId: 1, urgency: 1, importance: 1 });`
+// - `taskSchema.index({ userId: 1, deadline: 1 });`
+// - `taskSchema.index({ userId: 1, category: 1 });`
+// - `taskSchema.index({ userId: 1, 'linkedTo.type': 1 });`
+// - `taskSchema.index({ userId: 1, 'linkedTo.projectId': 1 });`
+// - `taskSchema.index({ userId: 1, 'linkedTo.goalId': 1 });`
+// - `taskSchema.index({ userId: 1, 'linkedTo.businessId': 1 });`
+
+// Optimized compound indexes for efficient queries
+taskSchema.index({ userId: 1, status: 1, deadline: 1 });
+taskSchema.index({ userId: 1, urgency: 1, importance: 1, deadline: 1 });
+taskSchema.index({ userId: 1, category: 1, deadline: 1 });
+taskSchema.index({ userId: 1, 'linkedTo.type': 1, 'linkedTo.projectId': 1 });
+taskSchema.index({ userId: 1, 'linkedTo.type': 1, 'linkedTo.goalId': 1 });
+taskSchema.index({ userId: 1, 'linkedTo.type': 1, 'linkedTo.businessId': 1 });
 
 // Virtual for Eisenhower Matrix quadrant
 taskSchema.virtual('eisenhowerQuadrant').get(function() {

@@ -19,7 +19,7 @@ const accountSchema = new mongoose.Schema({
   email: {
     type: String,
     required: [true, 'Email is required'],
-    unique: true,
+    unique: true, // This already creates an index, so no need for a separate index
     lowercase: true,
     trim: true,
     match: [
@@ -27,7 +27,7 @@ const accountSchema = new mongoose.Schema({
       'Please enter a valid email address'
     ]
   },
-  password: { // Changed from passwordHash to match your login route
+  password: {
     type: String,
     required: [true, 'Password is required'],
     minlength: [6, 'Password must be at least 6 characters long']
@@ -103,12 +103,12 @@ const accountSchema = new mongoose.Schema({
   collection: 'accounts'
 });
 
-// Indexes for performance and security
-accountSchema.index({ email: 1 });
-accountSchema.index({ confirmationToken: 1 });
-accountSchema.index({ passwordResetToken: 1 });
-accountSchema.index({ refreshToken: 1 });
-accountSchema.index({ status: 1 });
+// Removed duplicate indexes
+// The `unique: true` on `email` already creates an index, so no need for `accountSchema.index({ email: 1 });`
+// Removed `accountSchema.index({ confirmationToken: 1 });`
+// Removed `accountSchema.index({ passwordResetToken: 1 });`
+// Removed `accountSchema.index({ refreshToken: 1 });`
+// Removed `accountSchema.index({ status: 1 });`
 
 // Virtual for account lockout status
 accountSchema.virtual('isLocked').get(function() {

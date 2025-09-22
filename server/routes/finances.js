@@ -793,6 +793,236 @@ router.patch('/expenses/:id/payment', async (req, res) => {
   }
 });
 
+// ========================================
+// INCOME ROUTES
+// ========================================
+
+// GET /api/finances/income - Get all income with filtering
+router.get('/income', async (req, res) => {
+  try {
+    const {
+      category,
+      currency,
+      isRecurring,
+      startDate,
+      endDate,
+      sort = 'date',
+      order = 'desc',
+      page = 1,
+      limit = 20
+    } = req.query;
+
+    // Build filter
+    const filter = { userId: req.userId };
+
+    if (category && category !== 'all') {
+      filter.category = category;
+    }
+
+    if (currency && currency !== 'all') {
+      filter.currency = currency;
+    }
+
+    if (isRecurring !== undefined) {
+      filter.isRecurring = isRecurring === 'true';
+    }
+
+    if (startDate || endDate) {
+      filter.date = {};
+      if (startDate) filter.date.$gte = new Date(startDate);
+      if (endDate) filter.date.$lte = new Date(endDate);
+    }
+
+    // Build sort
+    const sortObj = {};
+    switch (sort) {
+      case 'amount':
+        sortObj.amount = order === 'desc' ? -1 : 1;
+        break;
+      case 'source':
+        sortObj.source = order === 'desc' ? -1 : 1;
+        break;
+      case 'category':
+        sortObj.category = order === 'desc' ? -1 : 1;
+        break;
+      case 'date':
+        sortObj.date = order === 'desc' ? -1 : 1;
+        break;
+      default:
+        sortObj.date = -1;
+    }
+
+    // Execute query with pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    
+    const [incomes, total] = await Promise.all([
+      Income.find(filter)
+        .sort(sortObj)
+        .skip(skip)
+        .limit(parseInt(limit))
+        .lean(),
+      Income.countDocuments(filter)
+    ]);
+
+    // Enrich incomes with computed fields
+    const enrichedIncomes = incomes.map(income => ({
+      ...income,
+      amount: parseFloat(income.amount.toString())
+    }));
+
+    // Get summary statistics
+    const summary = await getIncomeSummary(req.userId);
+
+    res.json({
+      incomes: enrichedIncomes,
+      pagination: {
+        currentPage: parseInt(page),
+        totalPages: Math.ceil(total / parseInt(limit)),
+        totalItems: total,
+        itemsPerPage: parseInt(limit),
+        hasNext: parseInt(page) < Math.ceil(total / parseInt(limit)),
+        hasPrev: parseInt(page) > 1
+      },
+      summary
+    });
+
+  } catch (error) {
+    console.error('Error fetching incomes:', error);
+    res.status(500).json({
+      error: 'Failed to fetch incomes',
+      code: 'FETCH_ERROR'
+    });
+  }
+});
+
+// POST /api/finances/income - Create new income
+router.post('/income', async (req, res) => {
+  try {
+    const {
+      source,
+      category,
+      amount,
+      currency = 'GBP',
+      description = '',
+      date,
+      isRecurring = false,
+      frequency,
+      taxable = true
+    } = req.body;
+
+    // Validation
+    const validationErrors = [];
+
+    if (!source || source.trim().length < 2) {
+      validationErrors.push('Income source must be at least 2 characters long');
+    }
+
+    if (!category) {
+      validationErrors.push('Income category is required');
+    }
+
+    if (!amount || amount <= 0) {
+      validationErrors.push('Income amount must be greater than 0');
+    }
+
+    if (isRecurring && !frequency) {
+      validationErrors.push('Frequency is required for recurring income');
+    }
+
+    if (validationErrors.length > 0) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        code: 'VALIDATION_ERROR',
+        details: validationErrors
+      });
+    }
+
+    // Create income
+    const incomeData = {
+      userId: req.userId,
+      source: source.trim(),
+      category,
+      amount,
+      currency,
+      description: description.trim(),
+      date: date ? new Date(date) : new Date(),
+      isRecurring,
+      taxable
+    };
+
+    if (isRecurring) {
+      incomeData.frequency = frequency;
+    }
+
+    const income = new Income(incomeData);
+    await income.save();
+
+    res.status(201).json({
+      message: 'Income created successfully',
+      code: 'INCOME_CREATED',
+      income: {
+        ...income.toJSON(),
+        amount: parseFloat(income.amount.toString())
+      }
+    });
+
+  } catch (error) {
+    console.error('Error creating income:', error);
+    
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors).map(err => err.message);
+      return res.status(400).json({
+        error: 'Validation failed',
+        code: 'VALIDATION_ERROR',
+        details: validationErrors
+      });
+    }
+
+    res.status(500).json({
+      error: 'Failed to create income',
+      code: 'CREATE_ERROR'
+    });
+  }
+});
+
+// GET /api/finances/income/:id - Get specific income
+router.get('/income/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        error: 'Invalid income ID',
+        code: 'INVALID_ID'
+      });
+    }
+
+    const income = await Income.findOne({
+      _id: id,
+      userId: req.userId
+    });
+
+    if (!income) {
+      return res.status(404).json({
+        error: 'Income not found',
+        code: 'INCOME_NOT_FOUND'
+      });
+    }
+
+    res.json({
+      ...income.toJSON(),
+      amount: parseFloat(income.amount.toString())
+    });
+
+  } catch (error) {
+    console.error('Error fetching income:', error);
+    res.status(500).json({
+      error: 'Failed to fetch income',
+      code: 'FETCH_ERROR'
+    });
+  }
+});
+
 // PUT /api/finances/income/:id - Update income
 router.put('/income/:id', async (req, res) => {
   try {

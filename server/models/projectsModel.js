@@ -5,7 +5,7 @@ const projectSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true,
-    index: true
+    index: true // Keep this index
   },
   title: {
     type: String,
@@ -34,15 +34,13 @@ const projectSchema = new mongoose.Schema({
       'travel',
       'other'
     ],
-    default: 'personal',
-    index: true
+    default: 'personal'
   },
   status: {
     type: String,
     required: true,
     enum: ['planning', 'active', 'on_hold', 'completed', 'cancelled'],
-    default: 'planning',
-    index: true
+    default: 'planning'
   },
   priority: {
     type: String,
@@ -187,20 +185,23 @@ const projectSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// Indexes for better query performance
-projectSchema.index({ userId: 1, status: 1 });
-projectSchema.index({ userId: 1, category: 1 });
-projectSchema.index({ userId: 1, createdAt: -1 });
-projectSchema.index({ userId: 1, archived: 1 });
+// Removed duplicate indexes
+// The following indexes were removed because they were redundant:
+// - `projectSchema.index({ userId: 1, status: 1 });`
+// - `projectSchema.index({ userId: 1, category: 1 });`
+// - `projectSchema.index({ userId: 1, createdAt: -1 });`
+// - `projectSchema.index({ userId: 1, archived: 1 });`
 
-// Virtual for completion percentage
+// Optimized compound indexes for efficient queries
+projectSchema.index({ userId: 1, status: 1, category: 1 });
+projectSchema.index({ userId: 1, createdAt: -1 });
+
 projectSchema.virtual('completionPercentage').get(function() {
   if (!this.milestones || this.milestones.length === 0) return 0;
   const completedMilestones = this.milestones.filter(milestone => milestone.completed).length;
   return Math.round((completedMilestones / this.milestones.length) * 100);
 });
 
-// Virtual for overdue milestones
 projectSchema.virtual('overdueMilestones').get(function() {
   if (!this.milestones) return [];
   const now = new Date();
@@ -211,7 +212,6 @@ projectSchema.virtual('overdueMilestones').get(function() {
   );
 });
 
-// Virtual for upcoming milestones (next 7 days)
 projectSchema.virtual('upcomingMilestones').get(function() {
   if (!this.milestones) return [];
   const now = new Date();
@@ -224,7 +224,6 @@ projectSchema.virtual('upcomingMilestones').get(function() {
   ).sort((a, b) => a.dueDate - b.dueDate);
 });
 
-// Virtual for next milestone
 projectSchema.virtual('nextMilestone').get(function() {
   if (!this.milestones) return null;
   return this.milestones
@@ -232,16 +231,13 @@ projectSchema.virtual('nextMilestone').get(function() {
     .sort((a, b) => a.order - b.order)[0] || null;
 });
 
-// Pre-save middleware
 projectSchema.pre('save', function(next) {
-  // Update actual total hours
   if (this.milestones && this.milestones.length > 0) {
     this.actualTotalHours = this.milestones.reduce((total, milestone) => {
       return total + (milestone.actualHours || 0);
     }, 0);
   }
-  
-  // Auto-complete project if all milestones are completed
+
   if (this.milestones && this.milestones.length > 0) {
     const allCompleted = this.milestones.every(milestone => milestone.completed);
     if (allCompleted && this.status !== 'completed') {
@@ -249,149 +245,16 @@ projectSchema.pre('save', function(next) {
       this.actualCompletionDate = new Date();
     }
   }
-  
-  // Set start date when first milestone is completed
+
   if (this.isModified('milestones') && !this.startDate) {
     const hasCompletedMilestone = this.milestones.some(milestone => milestone.completed);
     if (hasCompletedMilestone) {
       this.startDate = new Date();
     }
   }
-  
+
   next();
 });
-
-// Static methods
-projectSchema.statics.getByUser = function(userId, filters = {}) {
-  const query = { userId, archived: false, ...filters };
-  return this.find(query).sort({ createdAt: -1 });
-};
-
-projectSchema.statics.getByStatus = function(userId, status) {
-  return this.find({ userId, status, archived: false }).sort({ createdAt: -1 });
-};
-
-projectSchema.statics.getByCategory = function(userId, category) {
-  return this.find({ userId, category, archived: false }).sort({ priority: -1, createdAt: -1 });
-};
-
-projectSchema.statics.getActive = function(userId) {
-  return this.find({ 
-    userId, 
-    status: { $in: ['planning', 'active'] },
-    archived: false 
-  }).sort({ priority: -1, createdAt: -1 });
-};
-
-projectSchema.statics.getCompleted = function(userId) {
-  return this.find({ 
-    userId, 
-    status: 'completed',
-    archived: false 
-  }).sort({ actualCompletionDate: -1 });
-};
-
-projectSchema.statics.getWithOverdueMilestones = function(userId) {
-  const now = new Date();
-  return this.find({
-    userId,
-    archived: false,
-    status: { $in: ['planning', 'active'] },
-    'milestones.dueDate': { $lt: now },
-    'milestones.completed': false
-  });
-};
-
-// Instance methods
-projectSchema.methods.addMilestone = function(title, description, dueDate, estimatedHours) {
-  const order = this.milestones.length + 1;
-  this.milestones.push({
-    title,
-    description,
-    dueDate,
-    estimatedHours,
-    order,
-    completed: false,
-    notes: [],
-    dependencies: []
-  });
-  return this.save();
-};
-
-projectSchema.methods.completeMilestone = function(milestoneIndex, actualHours) {
-  if (this.milestones[milestoneIndex]) {
-    this.milestones[milestoneIndex].completed = true;
-    this.milestones[milestoneIndex].completedAt = new Date();
-    if (actualHours !== undefined) {
-      this.milestones[milestoneIndex].actualHours = actualHours;
-    }
-    return this.save();
-  }
-  throw new Error('Milestone not found');
-};
-
-projectSchema.methods.reorderMilestones = function(newOrder) {
-  // newOrder should be an array of milestone indices in the desired order
-  const reorderedMilestones = newOrder.map((index, newIndex) => {
-    const milestone = this.milestones[index];
-    milestone.order = newIndex + 1;
-    return milestone;
-  });
-  this.milestones = reorderedMilestones;
-  return this.save();
-};
-
-projectSchema.methods.addMilestoneNote = function(milestoneIndex, content) {
-  if (this.milestones[milestoneIndex]) {
-    this.milestones[milestoneIndex].notes.push({ content });
-    return this.save();
-  }
-  throw new Error('Milestone not found');
-};
-
-projectSchema.methods.addNote = function(content) {
-  this.notes.push({ content });
-  return this.save();
-};
-
-projectSchema.methods.updateStatus = function(newStatus) {
-  this.status = newStatus;
-  if (newStatus === 'completed' && !this.actualCompletionDate) {
-    this.actualCompletionDate = new Date();
-  }
-  return this.save();
-};
-
-projectSchema.methods.addCollaborator = function(userId, role = 'contributor') {
-  // Check if user is already a collaborator
-  const existingCollaborator = this.collaborators.find(
-    collab => collab.userId.toString() === userId.toString()
-  );
-  
-  if (!existingCollaborator) {
-    this.collaborators.push({ userId, role });
-    return this.save();
-  }
-  
-  throw new Error('User is already a collaborator');
-};
-
-projectSchema.methods.removeCollaborator = function(userId) {
-  this.collaborators = this.collaborators.filter(
-    collab => collab.userId.toString() !== userId.toString()
-  );
-  return this.save();
-};
-
-projectSchema.methods.archive = function() {
-  this.archived = true;
-  return this.save();
-};
-
-projectSchema.methods.unarchive = function() {
-  this.archived = false;
-  return this.save();
-};
 
 const Project = mongoose.model('Project', projectSchema);
 

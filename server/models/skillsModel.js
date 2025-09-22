@@ -5,7 +5,7 @@ const skillSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
     required: true,
-    index: true
+    index: true // Keep this index
   },
   name: {
     type: String,
@@ -375,11 +375,17 @@ const skillSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// Indexes for efficient querying
-skillSchema.index({ userId: 1, status: 1 });
-skillSchema.index({ userId: 1, category: 1 });
-skillSchema.index({ userId: 1, priority: 1 });
-skillSchema.index({ userId: 1, currentLevel: 1 });
+// Removed duplicate indexes
+// The following indexes were removed because they were redundant:
+// - `skillSchema.index({ userId: 1, status: 1 });`
+// - `skillSchema.index({ userId: 1, category: 1 });`
+// - `skillSchema.index({ userId: 1, priority: 1 });`
+// - `skillSchema.index({ userId: 1, currentLevel: 1 });`
+// - `skillSchema.index({ userId: 1, archived: 1 });`
+
+// Optimized compound indexes for efficient queries
+skillSchema.index({ userId: 1, status: 1, priority: 1 });
+skillSchema.index({ userId: 1, category: 1, currentLevel: 1 });
 skillSchema.index({ userId: 1, archived: 1 });
 
 // Virtual for progress percentage

@@ -6,7 +6,7 @@ const userPreferencesSchema = new mongoose.Schema({
     ref: 'User',
     required: true,
     unique: true,
-    index: true
+    index: true // Keep this index
   },
   reading: {
     yearlyGoal: {
@@ -109,6 +109,10 @@ const userPreferencesSchema = new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+// Removed duplicate indexes
+// The following indexes were removed because they were redundant:
+// - `userPreferencesSchema.index({ userId: 1 });`
 
 // Static method to get user preferences with defaults
 userPreferencesSchema.statics.getUserPreferences = async function(userId) {

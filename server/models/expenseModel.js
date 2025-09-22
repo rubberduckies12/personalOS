@@ -5,7 +5,7 @@ const expenseSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Account',
     required: [true, 'User ID is required'],
-    index: true
+    index: true // Keep this index
   },
   name: {
     type: String,
@@ -114,12 +114,15 @@ const expenseSchema = new mongoose.Schema({
   collection: 'expenses'
 });
 
-// Compound indexes for efficient queries
+// Removed duplicate indexes
+// The following indexes were removed because they were redundant:
+// - `expenseSchema.index({ userId: 1, isPaid: 1 });`
+// - `expenseSchema.index({ userId: 1, nextDueDate: 1 });`
+// - `expenseSchema.index({ userId: 1, isOverdue: 1 });`
+
+// Optimized compound indexes for efficient queries
 expenseSchema.index({ userId: 1, date: -1 });
 expenseSchema.index({ userId: 1, category: 1 });
-expenseSchema.index({ userId: 1, isPaid: 1 });
-expenseSchema.index({ userId: 1, nextDueDate: 1 });
-expenseSchema.index({ userId: 1, isOverdue: 1 });
 
 // Virtual for remaining balance
 expenseSchema.virtual('remainingBalance').get(function() {
@@ -240,22 +243,6 @@ expenseSchema.methods.calculateNextDueDate = function() {
   return nextDate;
 };
 
-// Instance method to roll forward recurring expense
-expenseSchema.methods.rollForward = async function() {
-  if (!this.isRecurring) return null;
-  
-  // Calculate next due date
-  this.calculateNextDueDate();
-  
-  // Reset payment status for new period
-  this.isPaid = false;
-  this.paidAmount = 0;
-  this.paidDate = null;
-  this.isOverdue = false;
-  
-  return this.save();
-};
-
 // Static method to get user's total expenses (normalized return format)
 expenseSchema.statics.getTotalByUser = async function(userId, startDate, endDate, currency = null) {
   const match = { userId: new mongoose.Types.ObjectId(userId) };
@@ -292,117 +279,6 @@ expenseSchema.statics.getTotalByUser = async function(userId, startDate, endDate
     };
     return acc;
   }, {});
-};
-
-// Static method to get expenses by category for a user
-expenseSchema.statics.getByCategory = function(userId, category) {
-  return this.find({ 
-    userId: new mongoose.Types.ObjectId(userId), 
-    category: category 
-  }).sort({ date: -1 });
-};
-
-// Static method to get paid/unpaid expenses
-expenseSchema.statics.getPaidExpenses = function(userId, isPaid = true) {
-  return this.find({ 
-    userId: new mongoose.Types.ObjectId(userId), 
-    isPaid: isPaid 
-  }).sort({ paidDate: -1, date: -1 });
-};
-
-// Static method to get partially paid expenses
-expenseSchema.statics.getPartiallyPaid = function(userId) {
-  return this.find({
-    userId: new mongoose.Types.ObjectId(userId),
-    isPaid: false,
-    paidAmount: { $gt: 0 }
-  }).sort({ date: -1 });
-};
-
-// Static method to get expenses by date range
-expenseSchema.statics.getByDateRange = function(userId, startDate, endDate) {
-  return this.find({
-    userId: new mongoose.Types.ObjectId(userId),
-    date: { $gte: new Date(startDate), $lte: new Date(endDate) }
-  }).sort({ date: -1 });
-};
-
-// Static method to get recurring expenses due soon
-expenseSchema.statics.getDueSoon = function(userId, daysAhead = 7) {
-  const futureDate = new Date();
-  futureDate.setDate(futureDate.getDate() + daysAhead);
-  
-  return this.find({
-    userId: new mongoose.Types.ObjectId(userId),
-    isRecurring: true,
-    nextDueDate: { $lte: futureDate }
-  }).sort({ nextDueDate: 1 });
-};
-
-// Static method to get unpaid bills due soon
-expenseSchema.statics.getUnpaidDueSoon = function(userId, daysAhead = 7) {
-  const futureDate = new Date();
-  futureDate.setDate(futureDate.getDate() + daysAhead);
-  
-  return this.find({
-    userId: new mongoose.Types.ObjectId(userId),
-    isPaid: false,
-    $or: [
-      { nextDueDate: { $lte: futureDate } },
-      { date: { $lte: futureDate } }
-    ]
-  }).sort({ nextDueDate: 1, date: 1 });
-};
-
-// Static method to get overdue unpaid expenses
-expenseSchema.statics.getOverdue = function(userId) {
-  return this.find({
-    userId: new mongoose.Types.ObjectId(userId),
-    isOverdue: true,
-    isPaid: false
-  }).sort({ nextDueDate: 1, date: 1 });
-};
-
-// Static method to auto-mark overdue expenses (for cron jobs)
-expenseSchema.statics.markOverdueExpenses = async function() {
-  const now = new Date();
-  
-  const result = await this.updateMany(
-    {
-      isPaid: false,
-      isOverdue: false,
-      $or: [
-        { nextDueDate: { $lt: now } },
-        { 
-          date: { $lt: now },
-          isRecurring: false
-        }
-      ]
-    },
-    { 
-      $set: { isOverdue: true }
-    }
-  );
-  
-  return result;
-};
-
-// Static method to roll forward all due recurring expenses (for cron jobs)
-expenseSchema.statics.rollForwardDueRecurring = async function() {
-  const now = new Date();
-  
-  const dueExpenses = await this.find({
-    isRecurring: true,
-    nextDueDate: { $lte: now }
-  });
-  
-  const results = [];
-  for (const expense of dueExpenses) {
-    const rolled = await expense.rollForward();
-    results.push(rolled);
-  }
-  
-  return results;
 };
 
 // Include virtuals when converting to JSON

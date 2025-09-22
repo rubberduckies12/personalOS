@@ -5,7 +5,7 @@ const budgetSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Account',
     required: [true, 'User ID is required'],
-    index: true
+    index: true // Keep this index
   },
   budgetName: {
     type: String,
@@ -67,7 +67,6 @@ const budgetSchema = new mongoose.Schema({
       return this.isRecurring;
     }
   },
-  // For non-recurring budgets - single date
   date: {
     type: Date,
     required: function() {
@@ -75,7 +74,6 @@ const budgetSchema = new mongoose.Schema({
     },
     default: Date.now
   },
-  // For recurring budgets - start and end dates
   startDate: {
     type: Date,
     required: function() {
@@ -86,7 +84,6 @@ const budgetSchema = new mongoose.Schema({
     type: Date,
     validate: {
       validator: function(value) {
-        // Only validate if this is a recurring budget and endDate is provided
         return !this.isRecurring || !value || value > this.startDate;
       },
       message: 'End date must be after start date'
@@ -140,7 +137,7 @@ const budgetSchema = new mongoose.Schema({
     type: Number,
     min: [0, 'Alert threshold cannot be negative'],
     max: [100, 'Alert threshold cannot exceed 100%'],
-    default: 80, // Alert when 80% of budget is spent
+    default: 80,
     validate: {
       validator: function(value) {
         return value >= 0 && value <= 100;
@@ -153,18 +150,19 @@ const budgetSchema = new mongoose.Schema({
   collection: 'budgets'
 });
 
+// Removed duplicate indexes
+// The following indexes were removed because they were redundant:
+// - `budgetSchema.index({ userId: 1, startDate: -1 });`
+// - `budgetSchema.index({ userId: 1, isActive: 1 });`
+// - `budgetSchema.index({ userId: 1, isClosed: 1 });`
+// - `budgetSchema.index({ userId: 1, isDeleted: 1 });`
+// - `budgetSchema.index({ userId: 1, nextResetDate: 1 });`
+// - `budgetSchema.index({ userId: 1, nextResetDate: 1, isActive: 1, isDeleted: 1 });`
+// - `budgetSchema.index({ userId: 1, isActive: 1, isClosed: 1, isDeleted: 1 });`
+
 // Optimized compound indexes for efficient queries
 budgetSchema.index({ userId: 1, date: -1 });
-budgetSchema.index({ userId: 1, startDate: -1 });
 budgetSchema.index({ userId: 1, category: 1 });
-budgetSchema.index({ userId: 1, isActive: 1 });
-budgetSchema.index({ userId: 1, isClosed: 1 });
-budgetSchema.index({ userId: 1, isDeleted: 1 });
-budgetSchema.index({ userId: 1, nextResetDate: 1 });
-
-// Optimized index for cron job queries
-budgetSchema.index({ userId: 1, nextResetDate: 1, isActive: 1, isDeleted: 1 });
-budgetSchema.index({ userId: 1, isActive: 1, isClosed: 1, isDeleted: 1 });
 
 // Virtual for remaining budget
 budgetSchema.virtual('remainingAmount').get(function() {
