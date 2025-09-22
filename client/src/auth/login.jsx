@@ -40,45 +40,56 @@ const Login = () => {
     }
   };
 
-  // Handle form submission
+  // Handle form submission - FIXED NAVIGATION PATH
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
     setErrors({});
 
     try {
+      console.log('🚀 === LOGIN ATTEMPT START ===');
+      console.log('📝 Form data:', formData);
+      console.log('💾 LocalStorage BEFORE login:', localStorage.getItem('user'));
+
       const response = await fetch('http://localhost:5001/api/login', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include',
         body: JSON.stringify(formData)
       });
 
+      console.log('📡 Response status:', response.status);
+      console.log('📡 Response ok:', response.ok);
+
       const data = await response.json();
+      console.log('📦 Full response data:', data);
 
       if (response.ok) {
-        setSuccess(true);
-        
-        // Store token if remember me is checked
-        if (formData.rememberMe) {
-          localStorage.setItem('token', data.token);
-        } else {
-          sessionStorage.setItem('token', data.token);
-        }
+        console.log('✅ === LOGIN SUCCESS ===');
+        console.log('👤 User data to store:', data.user);
         
         // Store user data
         localStorage.setItem('user', JSON.stringify(data.user));
+        console.log('💾 User data stored');
         
-        // Redirect to dashboard after 2 seconds
-        setTimeout(() => {
-          navigate('/dashboard', { 
-            state: { message: 'Welcome back!' }
-          });
-        }, 2000);
+        // Verify it was actually stored
+        const storedData = localStorage.getItem('user');
+        console.log('💾 Verification - stored data:', storedData);
+        console.log('💾 Verification - parsed data:', JSON.parse(storedData));
+        
+        console.log('🧭 About to navigate...');
+        navigate('/dashboard', { 
+          state: { message: 'Welcome back!' },
+          replace: true
+        });
+        
       } else {
+        console.log('❌ === LOGIN FAILED ===');
+        console.log('❌ Error details:', data);
+        
         if (data.details && Array.isArray(data.details)) {
-          // Handle validation errors
           const errorObj = {};
           data.details.forEach(error => {
             if (error.includes('email')) errorObj.email = error;
@@ -90,32 +101,26 @@ const Login = () => {
         }
       }
     } catch (error) {
-      console.error('Login error:', error);
+      console.error('🚨 Login network error:', error);
       setErrors({ general: 'Network error. Please try again.' });
     } finally {
       setLoading(false);
     }
   };
 
-  // Success screen
-  if (success) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center px-4">
-        <div className="max-w-md w-full">
-          <div className="bg-white rounded-2xl shadow-xl p-8 text-center">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <CheckCircleIcon className="w-8 h-8 text-green-600" />
-            </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Login Successful!</h2>
-            <p className="text-gray-600 mb-6">
-              Welcome back! You'll be redirected to your dashboard shortly.
-            </p>
-            <div className="animate-spin w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full mx-auto"></div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  useEffect(() => {
+    console.log('🧭 Current route:', location.pathname);
+    console.log('🧭 Location state:', location.state);
+  }, [location]);
+
+  // Add this useEffect to check if user is already logged in
+  useEffect(() => {
+    const userData = localStorage.getItem('user');
+    if (userData) {
+      console.log('👤 User already logged in, redirecting to dashboard...');
+      navigate('/dashboard', { replace: true });
+    }
+  }, [navigate]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center px-4 py-12">

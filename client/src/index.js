@@ -7,6 +7,33 @@ import Login from './auth/login';
 import Dashboard from './home/dashboard';
 import Finances from './finance/finances';
 
+// Enhanced Protected Route Component
+const ProtectedRoute = ({ children }) => {
+  console.log('🔐 === PROTECTED ROUTE CHECK ===');
+  console.log('🔐 Current URL:', window.location.href);
+  console.log('🔐 Current pathname:', window.location.pathname);
+  
+  const userData = localStorage.getItem('user');
+  console.log('🔐 Raw userData from localStorage:', userData);
+  
+  if (userData) {
+    try {
+      const parsedUser = JSON.parse(userData);
+      console.log('🔐 Parsed user data:', parsedUser);
+      console.log('✅ User authenticated, allowing access');
+      return children;
+    } catch (parseError) {
+      console.error('🚨 Error parsing user data:', parseError);
+      console.log('❌ Invalid user data, redirecting to login');
+      localStorage.removeItem('user');
+      return <Navigate to="/auth/login" replace />;
+    }
+  }
+  
+  console.log('❌ No user data found, redirecting to login');
+  return <Navigate to="/auth/login" replace />;
+};
+
 // Placeholder components for other routes
 const Terms = () => (
   <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center px-4 py-12">
@@ -116,21 +143,73 @@ const App = () => {
         <Route path="/privacy" element={<Privacy />} />
         
         {/* Protected Routes */}
-        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/dashboard" element={
+          <ProtectedRoute>
+            <Dashboard />
+          </ProtectedRoute>
+        } />
         
         {/* Module Routes */}
-        <Route path="/tasks" element={<TasksPage />} />
-        <Route path="/tasks/new" element={<TasksPage />} />
-        <Route path="/projects" element={<ProjectsPage />} />
-        <Route path="/projects/new" element={<ProjectsPage />} />
-        <Route path="/goals" element={<GoalsPage />} />
-        <Route path="/goals/new" element={<GoalsPage />} />
-        <Route path="/reading" element={<ReadingPage />} />
-        <Route path="/reading/new" element={<ReadingPage />} />
-        <Route path="/skills" element={<SkillsPage />} />
-        <Route path="/skills/new" element={<SkillsPage />} />
-        <Route path="/finances" element={<Finances />} />
-        <Route path="/finances/new" element={<Finances />} />
+        <Route path="/tasks" element={
+          <ProtectedRoute>
+            <TasksPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/tasks/new" element={
+          <ProtectedRoute>
+            <TasksPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/projects" element={
+          <ProtectedRoute>
+            <ProjectsPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/projects/new" element={
+          <ProtectedRoute>
+            <ProjectsPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/goals" element={
+          <ProtectedRoute>
+            <GoalsPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/goals/new" element={
+          <ProtectedRoute>
+            <GoalsPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/reading" element={
+          <ProtectedRoute>
+            <ReadingPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/reading/new" element={
+          <ProtectedRoute>
+            <ReadingPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/skills" element={
+          <ProtectedRoute>
+            <SkillsPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/skills/new" element={
+          <ProtectedRoute>
+            <SkillsPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/finances" element={
+          <ProtectedRoute>
+            <Finances />
+          </ProtectedRoute>
+        } />
+        <Route path="/finances/new" element={
+          <ProtectedRoute>
+            <Finances />
+          </ProtectedRoute>
+        } />
         
         {/* Default redirect */}
         <Route path="/" element={<Navigate to="/auth/login" replace />} />

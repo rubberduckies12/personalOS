@@ -165,24 +165,24 @@ const Finances = () => {
 
       const userId = JSON.parse(userData).id;
       const headers = {
-        'Authorization': `Bearer ${token}`, // ADD THIS!
+        'Authorization': `Bearer ${token}`,
         'user-id': userId,
         'Content-Type': 'application/json'
       };
 
-      console.log('🔐 Using token:', token.substring(0, 20) + '...'); // Debug log
+      console.log('🔐 Using token:', token.substring(0, 20) + '...');
 
-      // Fetch all financial data
+      // Fetch all financial data - CHANGED PORT TO 5001
       const [budgetsRes, expensesRes, incomesRes] = await Promise.all([
-        fetch(`http://localhost:5000/api/finances/budgets?status=${filters.status}&currency=${filters.currency}&limit=10`, { 
-          headers,
-          credentials: 'include' // Keep cookies for consistency
-        }),
-        fetch(`http://localhost:5000/api/finances/expenses?currency=${filters.currency}&limit=10`, { 
+        fetch(`http://localhost:5001/api/finances/budgets?status=${filters.status}&currency=${filters.currency}&limit=10`, { 
           headers,
           credentials: 'include'
         }),
-        fetch(`http://localhost:5000/api/finances/income?currency=${filters.currency}&limit=10`, { 
+        fetch(`http://localhost:5001/api/finances/expenses?currency=${filters.currency}&limit=10`, { 
+          headers,
+          credentials: 'include'
+        }),
+        fetch(`http://localhost:5001/api/finances/income?currency=${filters.currency}&limit=10`, { 
           headers,
           credentials: 'include'
         })
@@ -245,10 +245,10 @@ const Finances = () => {
       console.log('🆔 User ID:', userId);
       console.log('📝 Budget form data:', budgetForm);
 
-      const response = await fetch('http://localhost:5000/api/finances/budgets', {
+      const response = await fetch('http://localhost:5001/api/finances/budgets', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`, // ADD THIS!
+          'Authorization': `Bearer ${token}`,
           'user-id': userId,
           'Content-Type': 'application/json'
         },
@@ -299,10 +299,10 @@ const Finances = () => {
 
       const userId = JSON.parse(userData).id;
 
-      const response = await fetch('http://localhost:5000/api/finances/expenses', {
+      const response = await fetch('http://localhost:5001/api/finances/expenses', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`, // ADD THIS!
+          'Authorization': `Bearer ${token}`,
           'user-id': userId,
           'Content-Type': 'application/json'
         },
@@ -343,10 +343,10 @@ const Finances = () => {
 
       const userId = JSON.parse(userData).id;
 
-      const response = await fetch('http://localhost:5000/api/finances/income', {
+      const response = await fetch('http://localhost:5001/api/finances/income', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${token}`, // ADD THIS!
+          'Authorization': `Bearer ${token}`,
           'user-id': userId,
           'Content-Type': 'application/json'
         },

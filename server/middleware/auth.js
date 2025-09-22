@@ -5,29 +5,25 @@ const authenticateUser = async (req, res, next) => {
   console.log('🔐 AUTH MIDDLEWARE CALLED!');
   console.log('🔐 Request path:', req.path);
   console.log('🔐 Request method:', req.method);
+  console.log('🔐 Request origin:', req.headers.origin);
+  console.log('🔐 ALL COOKIES RECEIVED:', req.cookies); // This will show us what cookies are actually received
+  console.log('🔐 RAW COOKIE HEADER:', req.headers.cookie); // This shows the raw cookie header
+  console.log('🔐 Authorization header:', req.headers.authorization);
   
   try {
     let token = null;
-    
-    // 1. Try to get token from Authorization header (Bearer token)
-    const authHeader = req.headers.authorization;
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7); // Remove 'Bearer ' prefix
-      console.log('🔐 Token found in Authorization header');
-    }
-    
-    // 2. If no Authorization header, try to get token from cookies
-    if (!token && req.cookies && req.cookies.token) {
+
+    // Try to get token from cookies first
+    if (req.cookies && req.cookies.token) {
       token = req.cookies.token;
-      console.log('🔐 Token found in cookies');
+      console.log('🔐 Token found in cookies:', token.substring(0, 20) + '...');
     }
-    
-    // 3. If still no token, try other cookie names
-    if (!token && req.cookies && req.cookies.jwt) {
-      token = req.cookies.jwt;
-      console.log('🔐 Token found in jwt cookie');
+    // Fallback to Authorization header
+    else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+      token = req.headers.authorization.substring(7);
+      console.log('🔐 Token found in Authorization header:', token ? token.substring(0, 20) + '...' : 'EMPTY');
     }
-    
+
     console.log('🔐 Final token:', token ? token.substring(0, 20) + '...' : 'NONE');
     
     if (!token) {
@@ -38,7 +34,7 @@ const authenticateUser = async (req, res, next) => {
       });
     }
 
-    // 4. Verify the JWT token
+    // Verify the JWT token
     console.log('🔐 Verifying token with secret...');
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     console.log('✅ Token verified successfully:', {
@@ -47,18 +43,18 @@ const authenticateUser = async (req, res, next) => {
       exp: new Date(decoded.exp * 1000)
     });
 
-    // 5. Get user ID from token or fallback to header
-    const userId = decoded.userId || decoded.id || req.headers['user-id'];
+    // Get user ID from token
+    const userId = decoded.userId || decoded.id;
     
     if (!userId) {
-      console.log('❌ No user ID found in token or headers');
+      console.log('❌ No user ID found in token');
       return res.status(401).json({
         error: 'Access denied. User ID not found.',
         code: 'NO_USER_ID'
       });
     }
 
-    // 6. Validate user ID format
+    // Validate user ID format
     if (!mongoose.Types.ObjectId.isValid(userId)) {
       console.log('❌ Invalid user ID format:', userId);
       return res.status(401).json({
@@ -69,7 +65,7 @@ const authenticateUser = async (req, res, next) => {
 
     console.log('✅ User authenticated:', userId);
 
-    // 7. Add user info to request object
+    // Add user info to request object
     req.userId = userId;
     req.user = decoded;
     req.token = token;
