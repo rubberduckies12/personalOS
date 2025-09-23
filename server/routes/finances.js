@@ -4,9 +4,9 @@ const mongoose = require('mongoose');
 const Budget = require('../models/budgetModel');
 const Expense = require('../models/expenseModel');
 const Income = require('../models/incomeModel');
-const { authenticateUser } = require('../middleware/auth');
 
-// Apply authentication middleware to all routes
+// Remove the authentication import and middleware - it's handled in server.js
+const { authenticateUser } = require('../middleware/auth');
 router.use(authenticateUser);
 
 // ========================================

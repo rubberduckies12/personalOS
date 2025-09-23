@@ -6,20 +6,13 @@ const authenticateUser = async (req, res, next) => {
   console.log('🔐 Request path:', req.path);
   console.log('🔐 Request method:', req.method);
   console.log('🔐 Request origin:', req.headers.origin);
-  console.log('🔐 ALL COOKIES RECEIVED:', req.cookies); // This will show us what cookies are actually received
-  console.log('🔐 RAW COOKIE HEADER:', req.headers.cookie); // This shows the raw cookie header
   console.log('🔐 Authorization header:', req.headers.authorization);
   
   try {
     let token = null;
 
-    // Try to get token from cookies first
-    if (req.cookies && req.cookies.token) {
-      token = req.cookies.token;
-      console.log('🔐 Token found in cookies:', token.substring(0, 20) + '...');
-    }
-    // Fallback to Authorization header
-    else if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+    // Get token from Authorization header ONLY
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
       token = req.headers.authorization.substring(7);
       console.log('🔐 Token found in Authorization header:', token ? token.substring(0, 20) + '...' : 'EMPTY');
     }
@@ -27,7 +20,7 @@ const authenticateUser = async (req, res, next) => {
     console.log('🔐 Final token:', token ? token.substring(0, 20) + '...' : 'NONE');
     
     if (!token) {
-      console.log('❌ No token found in Authorization header or cookies');
+      console.log('❌ No token found in Authorization header');
       return res.status(401).json({
         error: 'Access denied. No token provided.',
         code: 'NO_TOKEN'

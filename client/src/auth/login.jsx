@@ -56,7 +56,7 @@ const Login = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        credentials: 'include',
+        // Remove credentials: 'include' - we're not using cookies anymore
         body: JSON.stringify(formData)
       });
 
@@ -69,15 +69,31 @@ const Login = () => {
       if (response.ok) {
         console.log('✅ === LOGIN SUCCESS ===');
         console.log('👤 User data to store:', data.user);
+        console.log('🔑 Access token received:', data.accessToken ? 'Yes' : 'No');
+        console.log('🔄 Refresh token received:', data.refreshToken ? 'Yes' : 'No');
         
-        // Store user data
+        // Store user data and tokens in localStorage
         localStorage.setItem('user', JSON.stringify(data.user));
-        console.log('💾 User data stored');
+        localStorage.setItem('accessToken', data.accessToken);
         
-        // Verify it was actually stored
+        if (data.refreshToken) {
+          localStorage.setItem('refreshToken', data.refreshToken);
+        }
+        
+        // If remember me is checked, store preference
+        if (formData.rememberMe) {
+          localStorage.setItem('rememberMe', 'true');
+        }
+        
+        console.log('💾 User data stored');
+        console.log('💾 Access token stored');
+        
+        // Verify storage
         const storedData = localStorage.getItem('user');
-        console.log('💾 Verification - stored data:', storedData);
-        console.log('💾 Verification - parsed data:', JSON.parse(storedData));
+        const storedToken = localStorage.getItem('accessToken');
+        console.log('💾 Verification - stored user:', storedData ? 'Yes' : 'No');
+        console.log('💾 Verification - stored token:', storedToken ? 'Yes' : 'No');
+        console.log('💾 Verification - parsed user:', JSON.parse(storedData));
         
         console.log('🧭 About to navigate...');
         navigate('/dashboard', { 

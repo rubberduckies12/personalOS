@@ -146,51 +146,63 @@ const Finances = () => {
 
   const loadFinanceData = async () => {
     try {
+      console.log('💰 Loading finance data with JWT...');
+      
       // Get user data from localStorage
       const userData = localStorage.getItem('user');
-      if (userData) {
-        setUser(JSON.parse(userData));
-      } else {
+      if (!userData) {
+        console.log('❌ No user data found, redirecting to login');
         navigate('/auth/login');
         return;
       }
 
       // Get JWT token
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      const token = localStorage.getItem('accessToken');
       if (!token) {
-        console.error('❌ No token found, redirecting to login');
+        console.error('❌ No access token found, redirecting to login');
         navigate('/auth/login');
         return;
       }
 
-      const userId = JSON.parse(userData).id;
+      setUser(JSON.parse(userData));
+      console.log('🔐 Using JWT token:', token.substring(0, 20) + '...');
+
+      // JWT-only headers (NO COOKIES)
       const headers = {
         'Authorization': `Bearer ${token}`,
-        'user-id': userId,
         'Content-Type': 'application/json'
       };
 
-      console.log('🔐 Using token:', token.substring(0, 20) + '...');
+      console.log('📡 Making API requests with JWT headers...');
 
-      // Fetch all financial data - CHANGED PORT TO 5001
+      // Fetch all financial data
       const [budgetsRes, expensesRes, incomesRes] = await Promise.all([
         fetch(`http://localhost:5001/api/finances/budgets?status=${filters.status}&currency=${filters.currency}&limit=10`, { 
-          headers,
-          credentials: 'include'
+          headers
+          // Remove credentials: 'include' - no cookies
         }),
         fetch(`http://localhost:5001/api/finances/expenses?currency=${filters.currency}&limit=10`, { 
-          headers,
-          credentials: 'include'
+          headers
+          // Remove credentials: 'include' - no cookies
         }),
         fetch(`http://localhost:5001/api/finances/income?currency=${filters.currency}&limit=10`, { 
-          headers,
-          credentials: 'include'
+          headers
+          // Remove credentials: 'include' - no cookies
         })
       ]);
 
       console.log('📡 Budget response status:', budgetsRes.status);
       console.log('📡 Expenses response status:', expensesRes.status);
       console.log('📡 Income response status:', incomesRes.status);
+
+      // Handle budgets response
+      if (budgetsRes.status === 401) {
+        console.log('🔒 Budgets request unauthorized, clearing auth and redirecting');
+        localStorage.removeItem('user');
+        localStorage.removeItem('accessToken');
+        navigate('/auth/login');
+        return;
+      }
 
       if (budgetsRes.ok) {
         const budgetsData = await budgetsRes.json();
@@ -200,12 +212,30 @@ const Finances = () => {
         console.error('❌ Budgets request failed:', budgetsRes.status, await budgetsRes.text());
       }
 
+      // Handle expenses response
+      if (expensesRes.status === 401) {
+        console.log('🔒 Expenses request unauthorized, clearing auth and redirecting');
+        localStorage.removeItem('user');
+        localStorage.removeItem('accessToken');
+        navigate('/auth/login');
+        return;
+      }
+
       if (expensesRes.ok) {
         const expensesData = await expensesRes.json();
         setExpenses(expensesData.expenses || []);
         setSummary(prev => ({ ...prev, expenses: expensesData.summary || prev.expenses }));
       } else {
         console.error('❌ Expenses request failed:', expensesRes.status, await expensesRes.text());
+      }
+
+      // Handle income response
+      if (incomesRes.status === 401) {
+        console.log('🔒 Income request unauthorized, clearing auth and redirecting');
+        localStorage.removeItem('user');
+        localStorage.removeItem('accessToken');
+        navigate('/auth/login');
+        return;
       }
 
       if (incomesRes.ok) {
@@ -231,7 +261,7 @@ const Finances = () => {
 
     try {
       const userData = localStorage.getItem('user');
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      const token = localStorage.getItem('accessToken');
       
       if (!userData || !token) {
         console.error('❌ Missing auth data, redirecting to login');
@@ -239,25 +269,28 @@ const Finances = () => {
         return;
       }
 
-      const userId = JSON.parse(userData).id;
-
-      console.log('🔐 Using token for budget creation:', token.substring(0, 20) + '...');
-      console.log('🆔 User ID:', userId);
+      console.log('🔐 Using JWT token for budget creation:', token.substring(0, 20) + '...');
       console.log('📝 Budget form data:', budgetForm);
 
       const response = await fetch('http://localhost:5001/api/finances/budgets', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
-          'user-id': userId,
           'Content-Type': 'application/json'
         },
-        credentials: 'include',
+        // Remove credentials: 'include' - no cookies
         body: JSON.stringify(budgetForm)
       });
 
       console.log('📡 Budget creation response status:', response.status);
-      console.log('📡 Budget creation response headers:', [...response.headers.entries()]);
+
+      if (response.status === 401) {
+        console.log('🔒 Budget creation unauthorized, clearing auth and redirecting');
+        localStorage.removeItem('user');
+        localStorage.removeItem('accessToken');
+        navigate('/auth/login');
+        return;
+      }
 
       if (response.ok) {
         const newBudget = await response.json();
@@ -290,25 +323,29 @@ const Finances = () => {
 
     try {
       const userData = localStorage.getItem('user');
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      const token = localStorage.getItem('accessToken');
       
       if (!userData || !token) {
         navigate('/auth/login');
         return;
       }
 
-      const userId = JSON.parse(userData).id;
-
       const response = await fetch('http://localhost:5001/api/finances/expenses', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
-          'user-id': userId,
           'Content-Type': 'application/json'
         },
-        credentials: 'include',
+        // Remove credentials: 'include' - no cookies
         body: JSON.stringify(expenseForm)
       });
+
+      if (response.status === 401) {
+        localStorage.removeItem('user');
+        localStorage.removeItem('accessToken');
+        navigate('/auth/login');
+        return;
+      }
 
       if (response.ok) {
         const newExpense = await response.json();
@@ -334,25 +371,29 @@ const Finances = () => {
 
     try {
       const userData = localStorage.getItem('user');
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+      const token = localStorage.getItem('accessToken');
       
       if (!userData || !token) {
         navigate('/auth/login');
         return;
       }
 
-      const userId = JSON.parse(userData).id;
-
       const response = await fetch('http://localhost:5001/api/finances/income', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
-          'user-id': userId,
           'Content-Type': 'application/json'
         },
-        credentials: 'include',
+        // Remove credentials: 'include' - no cookies
         body: JSON.stringify(incomeForm)
       });
+
+      if (response.status === 401) {
+        localStorage.removeItem('user');
+        localStorage.removeItem('accessToken');
+        navigate('/auth/login');
+        return;
+      }
 
       if (response.ok) {
         const newIncome = await response.json();

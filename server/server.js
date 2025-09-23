@@ -4,10 +4,8 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const cookieParser = require('cookie-parser');
 
-// Import middleware and routes
-const { authenticateUser } = require('./middleware/auth');
+// Import routes (no auth middleware import needed here)
 const registerRoute = require('./routes/register');
 const loginRoute = require('./routes/login');
 const tasksRoute = require('./routes/tasks');
@@ -25,17 +23,14 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/personalo
   .then(() => console.log('🔗 MongoDB Connected'))
   .catch(err => console.error('❌ MongoDB connection error:', err));
 
-// CORS configuration - MUST BE FIRST
+// CORS configuration
 app.use(cors({
   origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'user-id'],
-  credentials: true,
+  credentials: false,
   optionsSuccessStatus: 200
 }));
-
-// Cookie parser
-app.use(cookieParser());
 
 // JSON parsing
 app.use(express.json());
@@ -45,8 +40,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use((req, res, next) => {
   if (req.path.startsWith('/api/')) {
     console.log(`${req.method} ${req.path} from ${req.headers.origin || 'unknown'}`);
-    console.log('🍪 Raw cookies on request:', req.headers.cookie);
-    console.log('🍪 Parsed cookies:', req.cookies);
+    console.log('🔑 Authorization header:', req.headers.authorization ? 'Present' : 'Missing');
   }
   next();
 });
@@ -54,54 +48,23 @@ app.use((req, res, next) => {
 // Routes
 app.get('/health', (req, res) => res.json({ status: 'OK' }));
 
-// Test routes
-app.get('/api/test-cookie', (req, res) => {
-  console.log('🧪 Setting test cookie');
-  res.cookie('testCookie', 'testValue', {
-    httpOnly: false,
-    secure: false,
-    sameSite: 'lax',
-    maxAge: 60000,
-    path: '/'
-  });
-  res.json({ message: 'Test cookie set' });
-});
-
-app.get('/api/read-cookies', (req, res) => {
-  console.log('🧪 All cookies received:', req.cookies);
-  res.json({ cookies: req.cookies });
-});
-
-// Public routes - NO AUTHENTICATION REQUIRED
+// Public routes - NO AUTHENTICATION (handled in route files)
 app.use('/api/register', registerRoute);
 app.use('/api/login', loginRoute);
 
-// Logout route - MOVED AFTER LOGIN ROUTE AND WITH PROPER METHOD CHECK
+// Logout route - Public endpoint
 app.post('/api/auth/logout', (req, res) => {
   console.log('🚪 Logout request received');
-  
-  // Clear both cookies with the same options used to set them
-  const cookieOptions = {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/'
-  };
-  
-  res.clearCookie('token', cookieOptions);
-  res.clearCookie('refreshToken', cookieOptions);
-  
-  console.log('🍪 Cookies cleared');
   res.json({ message: 'Logged out successfully' });
 });
 
-// Protected routes - AUTHENTICATION REQUIRED
-app.use('/api/tasks', authenticateUser, tasksRoute);
-app.use('/api/projects', authenticateUser, projectsRoute);
-app.use('/api/goals', authenticateUser, goalsRoute);
-app.use('/api/reading', authenticateUser, readingRoute);
-app.use('/api/skills', authenticateUser, skillsRoute);
-app.use('/api/finances', authenticateUser, financesRoute);
+// Routes - AUTHENTICATION HANDLED IN INDIVIDUAL ROUTE FILES
+app.use('/api/tasks', tasksRoute);
+app.use('/api/projects', projectsRoute);
+app.use('/api/goals', goalsRoute);
+app.use('/api/reading', readingRoute);
+app.use('/api/skills', skillsRoute);
+app.use('/api/finances', financesRoute);
 
 // 404 handler
 app.use('/api', (req, res) => {
