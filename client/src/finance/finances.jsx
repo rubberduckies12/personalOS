@@ -20,7 +20,9 @@ import {
   CalendarIcon,
   XMarkIcon,
   HomeIcon,
-  ArrowLeftIcon
+  ArrowLeftIcon,
+  ChartPieIcon,
+  PresentationChartLineIcon
 } from '@heroicons/react/24/outline';
 
 const Finances = () => {
@@ -97,6 +99,32 @@ const Finances = () => {
   const formatCurrency = (amount, currency = 'GBP') => {
     const symbols = { USD: '$', GBP: '£', EUR: '€' };
     return `${symbols[currency] || '£'}${parseFloat(amount || 0).toFixed(2)}`;
+  };
+
+  // Calculate totals for budgets, expenses, and incomes
+  const calculateTotals = () => {
+    const totalBudgetAmount = budgets.reduce((sum, budget) => sum + parseFloat(budget.amount || 0), 0);
+    const totalBudgetSpent = budgets.reduce((sum, budget) => sum + parseFloat(budget.currentSpent || 0), 0);
+    const totalBudgetRemaining = totalBudgetAmount - totalBudgetSpent;
+    
+    const totalExpenseAmount = expenses.reduce((sum, expense) => sum + parseFloat(expense.amount || 0), 0);
+    const totalExpensePaid = expenses.reduce((sum, expense) => sum + parseFloat(expense.paidAmount || 0), 0);
+    const totalExpenseRemaining = totalExpenseAmount - totalExpensePaid;
+    
+    const totalIncomeAmount = incomes.reduce((sum, income) => sum + parseFloat(income.amount || 0), 0);
+    const recurringIncome = incomes.filter(income => income.isRecurring).reduce((sum, income) => sum + parseFloat(income.amount || 0), 0);
+    const oneTimeIncome = totalIncomeAmount - recurringIncome;
+    
+    const netBalance = totalIncomeAmount - totalExpenseAmount;
+    const savingsRate = totalIncomeAmount > 0 ? ((totalIncomeAmount - totalExpenseAmount) / totalIncomeAmount * 100) : 0;
+    
+    return {
+      budgets: { total: totalBudgetAmount, spent: totalBudgetSpent, remaining: totalBudgetRemaining },
+      expenses: { total: totalExpenseAmount, paid: totalExpensePaid, remaining: totalExpenseRemaining },
+      income: { total: totalIncomeAmount, recurring: recurringIncome, oneTime: oneTimeIncome },
+      netBalance,
+      savingsRate
+    };
   };
 
   // Reset forms
@@ -539,107 +567,345 @@ const Finances = () => {
         {/* Overview Tab */}
         {activeTab === 'overview' && (
           <div className="space-y-6">
-            {/* Summary Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Financial Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {(() => {
+                const totals = calculateTotals();
+                return (
+                  <>
+                    {/* Total Income */}
+                    <div className="bg-white rounded-xl shadow-sm p-6 border-l-4 border-green-500">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg flex items-center justify-center">
+                          <BanknotesIcon className="w-6 h-6 text-white" />
+                        </div>
+                        <ArrowTrendingUpIcon className="w-5 h-5 text-green-600" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-1">Total Income</h3>
+                      <p className="text-3xl font-bold text-green-600">{formatCurrency(totals.income.total, filters.currency)}</p>
+                      <div className="flex justify-between text-sm text-gray-600 mt-2">
+                        <span>Recurring: {formatCurrency(totals.income.recurring, filters.currency)}</span>
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        One-time: {formatCurrency(totals.income.oneTime, filters.currency)}
+                      </div>
+                    </div>
+
+                    {/* Total Expenses */}
+                    <div className="bg-white rounded-xl shadow-sm p-6 border-l-4 border-red-500">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="w-12 h-12 bg-gradient-to-r from-red-500 to-pink-500 rounded-lg flex items-center justify-center">
+                          <CreditCardIcon className="w-6 h-6 text-white" />
+                        </div>
+                        <ArrowTrendingDownIcon className="w-5 h-5 text-red-600" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-1">Total Expenses</h3>
+                      <p className="text-3xl font-bold text-red-600">{formatCurrency(totals.expenses.total, filters.currency)}</p>
+                      <div className="flex justify-between text-sm text-gray-600 mt-2">
+                        <span>Paid: {formatCurrency(totals.expenses.paid, filters.currency)}</span>
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        Remaining: {formatCurrency(totals.expenses.remaining, filters.currency)}
+                      </div>
+                    </div>
+
+                    {/* Budget Overview */}
+                    <div className="bg-white rounded-xl shadow-sm p-6 border-l-4 border-blue-500">
+                      <div className="flex items-center justify-between mb-4">
+                        <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-lg flex items-center justify-center">
+                          <CurrencyDollarIcon className="w-6 h-6 text-white" />
+                        </div>
+                        <ChartPieIcon className="w-5 h-5 text-blue-600" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-1">Budget Allocated</h3>
+                      <p className="text-3xl font-bold text-blue-600">{formatCurrency(totals.budgets.total, filters.currency)}</p>
+                      <div className="flex justify-between text-sm text-gray-600 mt-2">
+                        <span>Spent: {formatCurrency(totals.budgets.spent, filters.currency)}</span>
+                      </div>
+                      <div className="text-sm text-gray-600">
+                        Remaining: {formatCurrency(totals.budgets.remaining, filters.currency)}
+                      </div>
+                    </div>
+
+                    {/* Net Balance */}
+                    <div className={`bg-white rounded-xl shadow-sm p-6 border-l-4 ${totals.netBalance >= 0 ? 'border-emerald-500' : 'border-orange-500'}`}>
+                      <div className="flex items-center justify-between mb-4">
+                        <div className={`w-12 h-12 bg-gradient-to-r ${totals.netBalance >= 0 ? 'from-emerald-500 to-teal-500' : 'from-orange-500 to-red-500'} rounded-lg flex items-center justify-center`}>
+                          <PresentationChartLineIcon className="w-6 h-6 text-white" />
+                        </div>
+                        {totals.netBalance >= 0 ? 
+                          <ArrowTrendingUpIcon className="w-5 h-5 text-emerald-600" /> :
+                          <ArrowTrendingDownIcon className="w-5 h-5 text-orange-600" />
+                        }
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900 mb-1">Net Balance</h3>
+                      <p className={`text-3xl font-bold ${totals.netBalance >= 0 ? 'text-emerald-600' : 'text-orange-600'}`}>
+                        {formatCurrency(totals.netBalance, filters.currency)}
+                      </p>
+                      <div className="text-sm text-gray-600 mt-2">
+                        Savings Rate: {totals.savingsRate.toFixed(1)}%
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {totals.netBalance >= 0 ? 'Positive cash flow' : 'Negative cash flow'}
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+
+            {/* Visual Charts Row */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Budget Utilization Chart */}
               <div className="bg-white rounded-xl shadow-sm p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="w-12 h-12 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-lg flex items-center justify-center">
-                    <CurrencyDollarIcon className="w-6 h-6 text-white" />
-                  </div>
-                  <ArrowTrendingUpIcon className="w-5 h-5 text-emerald-600" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  <ChartPieIcon className="w-5 h-5 mr-2 text-blue-600" />
+                  Budget Utilization
+                </h3>
+                <div className="space-y-4">
+                  {budgets.slice(0, 5).map((budget) => {
+                    const percentage = Math.min((budget.currentSpent / budget.amount) * 100, 100);
+                    return (
+                      <div key={budget.id} className="space-y-2">
+                        <div className="flex justify-between text-sm">
+                          <span className="font-medium text-gray-900">{budget.budgetName}</span>
+                          <span className="text-gray-600">{percentage.toFixed(1)}%</span>
+                        </div>
+                        <div className="w-full bg-gray-200 rounded-full h-3">
+                          <div
+                            className={`h-3 rounded-full transition-all duration-300 ${
+                              percentage >= 100 ? 'bg-red-500' :
+                              percentage >= 80 ? 'bg-orange-500' :
+                              percentage >= 60 ? 'bg-yellow-500' :
+                              'bg-emerald-500'
+                            }`}
+                            style={{ width: `${percentage}%` }}
+                          ></div>
+                        </div>
+                        <div className="flex justify-between text-xs text-gray-500">
+                          <span>{formatCurrency(budget.currentSpent, budget.currency)} spent</span>
+                          <span>{formatCurrency(budget.amount - budget.currentSpent, budget.currency)} left</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {budgets.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                      <CurrencyDollarIcon className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                      <p>No budgets created yet</p>
+                    </div>
+                  )}
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">Active Budgets</h3>
-                <p className="text-3xl font-bold text-gray-900">{summary.budgets.active}</p>
-                <p className="text-sm text-gray-600">
-                  {summary.budgets.closed} closed, {summary.budgets.deleted} archived
-                </p>
               </div>
 
+              {/* Expense Categories Breakdown */}
               <div className="bg-white rounded-xl shadow-sm p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="w-12 h-12 bg-gradient-to-r from-red-500 to-pink-500 rounded-lg flex items-center justify-center">
-                    <CreditCardIcon className="w-6 h-6 text-white" />
-                  </div>
-                  <ArrowTrendingDownIcon className="w-5 h-5 text-red-600" />
+                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                  <CreditCardIcon className="w-5 h-5 mr-2 text-red-600" />
+                  Expense Categories
+                </h3>
+                <div className="space-y-4">
+                  {(() => {
+                    const categoryTotals = expenses.reduce((acc, expense) => {
+                      acc[expense.category] = (acc[expense.category] || 0) + parseFloat(expense.amount || 0);
+                      return acc;
+                    }, {});
+                    
+                    const totalExpenses = Object.values(categoryTotals).reduce((sum, amount) => sum + amount, 0);
+                    
+                    return Object.entries(categoryTotals)
+                      .sort(([,a], [,b]) => b - a)
+                      .slice(0, 6)
+                      .map(([category, amount]) => {
+                        const percentage = totalExpenses > 0 ? (amount / totalExpenses) * 100 : 0;
+                        return (
+                          <div key={category} className="space-y-2">
+                            <div className="flex justify-between text-sm">
+                              <span className="font-medium text-gray-900">{category}</span>
+                              <span className="text-gray-600">{formatCurrency(amount, filters.currency)}</span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                              <div
+                                className="h-2 rounded-full bg-gradient-to-r from-red-400 to-pink-500 transition-all duration-300"
+                                style={{ width: `${percentage}%` }}
+                              ></div>
+                            </div>
+                            <div className="text-xs text-gray-500 text-right">
+                              {percentage.toFixed(1)}% of total expenses
+                            </div>
+                          </div>
+                        );
+                      });
+                  })()}
+                  {expenses.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                      <CreditCardIcon className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                      <p>No expenses recorded yet</p>
+                    </div>
+                  )}
                 </div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">Total Expenses</h3>
-                <p className="text-3xl font-bold text-gray-900">{summary.expenses.total}</p>
-                <p className="text-sm text-gray-600">
-                  {summary.expenses.paid} paid, {summary.expenses.overdue} overdue
-                </p>
-              </div>
-
-              <div className="bg-white rounded-xl shadow-sm p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-lg flex items-center justify-center">
-                    <BanknotesIcon className="w-6 h-6 text-white" />
-                  </div>
-                  <ArrowTrendingUpIcon className="w-5 h-5 text-blue-600" />
-                </div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-1">Income Sources</h3>
-                <p className="text-3xl font-bold text-gray-900">{summary.incomes.total}</p>
-                <p className="text-sm text-gray-600">
-                  {summary.incomes.recurring} recurring, {summary.incomes.oneTime} one-time
-                </p>
               </div>
             </div>
 
-            {/* Recent Activity */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="bg-white rounded-xl shadow-sm p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Expenses</h3>
+            {/* Recent Activity and Quick Stats */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Recent Transactions */}
+              <div className="lg:col-span-2 bg-white rounded-xl shadow-sm p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
                 <div className="space-y-3">
-                  {expenses.slice(0, 5).map((expense) => (
-                    <div key={expense.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  {/* Combine recent expenses and income */}
+                  {[
+                    ...expenses.slice(0, 3).map(expense => ({
+                      ...expense,
+                      type: 'expense',
+                      icon: CreditCardIcon,
+                      color: 'red',
+                      amount: -parseFloat(expense.amount || 0)
+                    })),
+                    ...incomes.slice(0, 3).map(income => ({
+                      ...income,
+                      type: 'income',
+                      icon: BanknotesIcon,
+                      color: 'green',
+                      amount: parseFloat(income.amount || 0),
+                      name: income.source
+                    }))
+                  ]
+                  .sort((a, b) => new Date(b.date || b.createdAt) - new Date(a.date || a.createdAt))
+                  .slice(0, 5)
+                  .map((item, index) => (
+                    <div key={`${item.type}-${item.id || index}`} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                       <div className="flex items-center space-x-3">
-                        <div className="w-8 h-8 bg-red-100 rounded-full flex items-center justify-center">
-                          <CreditCardIcon className="w-4 h-4 text-red-600" />
+                        <div className={`w-8 h-8 bg-${item.color}-100 rounded-full flex items-center justify-center`}>
+                          <item.icon className={`w-4 h-4 text-${item.color}-600`} />
                         </div>
                         <div>
-                          <p className="text-sm font-medium text-gray-900">{expense.name}</p>
-                          <p className="text-xs text-gray-500">{expense.category}</p>
+                          <p className="text-sm font-medium text-gray-900">{item.name || item.source}</p>
+                          <p className="text-xs text-gray-500">
+                            {item.category} • {new Date(item.date || item.createdAt).toLocaleDateString()}
+                          </p>
                         </div>
                       </div>
                       <div className="text-right">
-                        <p className="text-sm font-medium text-gray-900">
-                          {formatCurrency(expense.amount, expense.currency)}
+                        <p className={`text-sm font-medium ${item.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {item.amount >= 0 ? '+' : ''}{formatCurrency(Math.abs(item.amount), item.currency)}
                         </p>
-                        <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(expense.paymentStatus)}`}>
-                          {expense.paymentStatus}
+                        <span className={`text-xs px-2 py-1 rounded-full ${
+                          item.type === 'expense' ? getStatusColor(item.paymentStatus) : 'text-green-600 bg-green-100'
+                        }`}>
+                          {item.type === 'expense' ? item.paymentStatus : 'received'}
                         </span>
                       </div>
                     </div>
                   ))}
+                  {expenses.length === 0 && incomes.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                      <ChartBarIcon className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                      <p>No recent activity</p>
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="bg-white rounded-xl shadow-sm p-6">
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">Budget Status</h3>
-                <div className="space-y-3">
-                  {budgets.slice(0, 5).map((budget) => (
-                    <div key={budget.id} className="p-3 bg-gray-50 rounded-lg">
-                      <div className="flex items-center justify-between mb-2">
-                        <p className="text-sm font-medium text-gray-900">{budget.budgetName}</p>
-                        <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(budget.status)}`}>
-                          {budget.status}
-                        </span>
+              {/* Quick Actions & Financial Health */}
+              <div className="space-y-6">
+                {/* Financial Health Score */}
+                <div className="bg-white rounded-xl shadow-sm p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Financial Health</h3>
+                  {(() => {
+                    const totals = calculateTotals();
+                    const healthScore = Math.max(0, Math.min(100, 
+                      (totals.savingsRate * 0.4) + 
+                      (totals.budgets.remaining / totals.budgets.total * 30) + 
+                      (totals.expenses.paid / totals.expenses.total * 30)
+                    ));
+                    
+                    return (
+                      <div className="space-y-4">
+                        <div className="text-center">
+                          <div className={`text-4xl font-bold ${
+                            healthScore >= 80 ? 'text-green-600' :
+                            healthScore >= 60 ? 'text-yellow-600' :
+                            'text-red-600'
+                          }`}>
+                            {healthScore.toFixed(0)}
+                          </div>
+                          <div className="text-sm text-gray-600">Health Score</div>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-xs">
+                            <span>Savings Rate</span>
+                            <span>{totals.savingsRate.toFixed(1)}%</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-1">
+                            <div
+                              className="h-1 rounded-full bg-blue-500"
+                              style={{ width: `${Math.min(totals.savingsRate, 100)}%` }}
+                            ></div>
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-xs">
+                            <span>Budget Control</span>
+                            <span>{((totals.budgets.remaining / totals.budgets.total) * 100 || 0).toFixed(1)}%</span>
+                          </div>
+                          <div className="w-full bg-gray-200 rounded-full h-1">
+                            <div
+                              className="h-1 rounded-full bg-emerald-500"
+                              style={{ width: `${(totals.budgets.remaining / totals.budgets.total) * 100 || 0}%` }}
+                            ></div>
+                          </div>
+                        </div>
                       </div>
-                      <div className="w-full bg-gray-200 rounded-full h-2 mb-1">
-                        <div
-                          className={`h-2 rounded-full ${
-                            budget.spentPercentage >= 100 ? 'bg-red-500' :
-                            budget.spentPercentage >= 80 ? 'bg-orange-500' :
-                            'bg-emerald-500'
-                          }`}
-                          style={{ width: `${Math.min(budget.spentPercentage, 100)}%` }}
-                        ></div>
+                    );
+                  })()}
+                </div>
+
+                {/* Quick Actions */}
+                <div className="bg-white rounded-xl shadow-sm p-6">
+                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
+                  <div className="space-y-3">
+                    <button
+                      onClick={() => {
+                        setCreateType('expense');
+                        setShowCreateModal(true);
+                      }}
+                      className="w-full text-left p-3 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 transition-colors"
+                    >
+                      <div className="flex items-center space-x-3">
+                        <CreditCardIcon className="w-5 h-5 text-red-600" />
+                        <span className="text-sm font-medium text-red-900">Add Expense</span>
                       </div>
-                      <div className="flex justify-between text-xs text-gray-600">
-                        <span>{formatCurrency(budget.currentSpent, budget.currency)} spent</span>
-                        <span>{formatCurrency(budget.amount, budget.currency)} budget</span>
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        setCreateType('income');
+                        setShowCreateModal(true);
+                      }}
+                      className="w-full text-left p-3 bg-green-50 border border-green-200 rounded-lg hover:bg-green-100 transition-colors"
+                    >
+                      <div className="flex items-center space-x-3">
+                        <BanknotesIcon className="w-5 h-5 text-green-600" />
+                        <span className="text-sm font-medium text-green-900">Add Income</span>
                       </div>
-                    </div>
-                  ))}
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        setCreateType('budget');
+                        setShowCreateModal(true);
+                      }}
+                      className="w-full text-left p-3 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors"
+                    >
+                      <div className="flex items-center space-x-3">
+                        <CurrencyDollarIcon className="w-5 h-5 text-blue-600" />
+                        <span className="text-sm font-medium text-blue-900">Create Budget</span>
+                      </div>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
