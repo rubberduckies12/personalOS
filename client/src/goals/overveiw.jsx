@@ -17,7 +17,9 @@ import {
   ArrowLeftIcon,
   SparklesIcon,
   FireIcon,
-  BoltIcon
+  BoltIcon,
+  FunnelIcon,
+  MagnifyingGlassIcon
 } from '@heroicons/react/24/outline';
 
 const Overview = () => {
@@ -37,8 +39,18 @@ const Overview = () => {
   // Modal states
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [showStepModal, setShowStepModal] = useState(false);
+  const [showAllGoalsModal, setShowAllGoalsModal] = useState(false);
   const [selectedGoal, setSelectedGoal] = useState(null);
   const [selectedStep, setSelectedStep] = useState(null);
+
+  // All goals modal state
+  const [allGoals, setAllGoals] = useState([]);
+  const [filteredGoals, setFilteredGoals] = useState([]);
+  const [allGoalsLoading, setAllGoalsLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [categoryFilter, setCategoryFilter] = useState('all');
+  const [priorityFilter, setPriorityFilter] = useState('all');
 
   // Get status info helper
   const getStatusInfo = (status) => {
@@ -147,6 +159,61 @@ const Overview = () => {
     }
   };
 
+  // Load all goals for the modal
+  const loadAllGoals = async () => {
+    try {
+      setAllGoalsLoading(true);
+      const token = localStorage.getItem('accessToken');
+      
+      const response = await fetch('http://localhost:5001/api/goals?limit=1000&sortBy=createdAt&sortOrder=desc', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setAllGoals(data.goals || []);
+        setFilteredGoals(data.goals || []);
+      }
+      setAllGoalsLoading(false);
+    } catch (error) {
+      console.error('Error loading all goals:', error);
+      setAllGoalsLoading(false);
+    }
+  };
+
+  // Filter goals based on search and filters
+  const filterGoals = () => {
+    let filtered = [...allGoals];
+
+    // Search filter
+    if (searchTerm.trim()) {
+      filtered = filtered.filter(goal => 
+        goal.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        goal.description.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+
+    // Status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter(goal => goal.status === statusFilter);
+    }
+
+    // Category filter
+    if (categoryFilter !== 'all') {
+      filtered = filtered.filter(goal => goal.category === categoryFilter);
+    }
+
+    // Priority filter
+    if (priorityFilter !== 'all') {
+      filtered = filtered.filter(goal => goal.priority === priorityFilter);
+    }
+
+    setFilteredGoals(filtered);
+  };
+
   // Load specific goal details
   const loadGoalDetails = async (goalId) => {
     try {
@@ -163,6 +230,8 @@ const Overview = () => {
         const goalData = await response.json();
         setSelectedGoal(goalData);
         setShowGoalModal(true);
+        // Close all goals modal when viewing specific goal
+        setShowAllGoalsModal(false);
       } else {
         console.error('Failed to load goal details');
       }
@@ -177,12 +246,34 @@ const Overview = () => {
     setShowStepModal(true);
   };
 
+  // Open all goals modal
+  const openAllGoalsModal = () => {
+    setShowAllGoalsModal(true);
+    loadAllGoals();
+  };
+
   // Calculate roadmap progress
   const calculateRoadmapProgress = (roadmap) => {
     if (!roadmap || roadmap.length === 0) return 0;
     const completed = roadmap.filter(step => step.completed).length;
     return Math.round((completed / roadmap.length) * 100);
   };
+
+  // Get unique categories and priorities for filters
+  const getUniqueCategories = () => {
+    const categories = [...new Set(allGoals.map(goal => goal.category))];
+    return categories.sort();
+  };
+
+  const getUniquePriorities = () => {
+    const priorities = [...new Set(allGoals.map(goal => goal.priority))];
+    return priorities.sort();
+  };
+
+  // Apply filters whenever dependencies change
+  useEffect(() => {
+    filterGoals();
+  }, [searchTerm, statusFilter, categoryFilter, priorityFilter, allGoals]);
 
   useEffect(() => {
     loadStats();
@@ -313,7 +404,7 @@ const Overview = () => {
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-gray-900">Recent Goals</h3>
               <button
-                onClick={() => navigate('/goals/set')}
+                onClick={openAllGoalsModal}
                 className="text-sm text-blue-600 hover:text-blue-700 font-medium"
               >
                 View All
@@ -427,41 +518,184 @@ const Overview = () => {
           </div>
 
           <div className="mt-6 pt-6 border-t border-white/20">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h4 className="font-semibold mb-1">Keep Going! 💪</h4>
-                <p className="text-sm opacity-90">
-                  {milestonesHit > 0 
-                    ? `Amazing! You've completed ${milestonesHit} milestone${milestonesHit !== 1 ? 's' : ''} across your goals. ${
-                        stats.overview.inProgress > 0 
-                          ? `${stats.overview.inProgress} goal${stats.overview.inProgress !== 1 ? 's' : ''} still in progress!`
-                          : 'Ready for your next challenge?'
-                      }`
-                    : stats.overview.total > 0
-                    ? "You have goals set up! Start completing roadmap steps to track your milestones."
-                    : "Ready to start your goal journey? Create your first goal today!"
-                  }
-                </p>
-              </div>
-              <div className="flex space-x-3">
-                <button 
-                  onClick={() => navigate('/goals/set')}
-                  className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg font-medium transition-colors backdrop-blur-sm"
-                >
-                  <PlusIcon className="w-4 h-4 inline mr-2" />
-                  New Goal
-                </button>
-                <button 
-                  onClick={() => navigate('/goals/progress')}
-                  className="bg-white/20 hover:bg-white/30 px-4 py-2 rounded-lg font-medium transition-colors backdrop-blur-sm"
-                >
-                  View Progress
-                </button>
-              </div>
+            <div>
+              <h4 className="font-semibold mb-1">Keep Going! 💪</h4>
+              <p className="text-sm opacity-90">
+                {milestonesHit > 0 
+                  ? `Amazing! You've completed ${milestonesHit} milestone${milestonesHit !== 1 ? 's' : ''} across your goals. ${
+                      stats.overview.inProgress > 0 
+                        ? `${stats.overview.inProgress} goal${stats.overview.inProgress !== 1 ? 's' : ''} still in progress!`
+                        : 'Ready for your next challenge?'
+                    }`
+                  : stats.overview.total > 0
+                  ? "You have goals set up! Start completing roadmap steps to track your milestones."
+                  : "Ready to start your goal journey? Create your first goal today!"
+                }
+              </p>
             </div>
           </div>
         </div>
       </div>
+
+      {/* All Goals Modal */}
+      {showAllGoalsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-6xl max-h-[90vh] overflow-hidden">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-2xl font-bold text-gray-900">All Goals</h3>
+                <button
+                  onClick={() => setShowAllGoalsModal(false)}
+                  className="p-2 text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="w-6 h-6" />
+                </button>
+              </div>
+
+              {/* Search and Filters */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                {/* Search */}
+                <div className="relative">
+                  <MagnifyingGlassIcon className="w-5 h-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search goals..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                {/* Status Filter */}
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="all">All Statuses</option>
+                  <option value="not_started">Not Started</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="achieved">Achieved</option>
+                </select>
+
+                {/* Category Filter */}
+                <select
+                  value={categoryFilter}
+                  onChange={(e) => setCategoryFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="all">All Categories</option>
+                  {getUniqueCategories().map(category => (
+                    <option key={category} value={category} className="capitalize">
+                      {category}
+                    </option>
+                  ))}
+                </select>
+
+                {/* Priority Filter */}
+                <select
+                  value={priorityFilter}
+                  onChange={(e) => setPriorityFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                >
+                  <option value="all">All Priorities</option>
+                  {getUniquePriorities().map(priority => (
+                    <option key={priority} value={priority} className="capitalize">
+                      {priority}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Results count */}
+              <div className="mt-4 text-sm text-gray-600">
+                Showing {filteredGoals.length} of {allGoals.length} goals
+              </div>
+            </div>
+
+            {/* Goals List */}
+            <div className="p-6 overflow-y-auto max-h-[60vh]">
+              {allGoalsLoading ? (
+                <div className="flex items-center justify-center py-20">
+                  <div className="animate-spin w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full"></div>
+                </div>
+              ) : filteredGoals.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {filteredGoals.map((goal) => {
+                    const statusInfo = getStatusInfo(goal.status);
+                    const StatusIcon = statusInfo.icon;
+                    const progress = calculateRoadmapProgress(goal.roadmap);
+                    
+                    return (
+                      <div
+                        key={goal._id}
+                        onClick={() => loadGoalDetails(goal._id)}
+                        className="bg-gray-50 rounded-lg p-4 hover:bg-gray-100 cursor-pointer transition-colors border"
+                      >
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex items-center space-x-2">
+                            <StatusIcon className={`w-4 h-4 text-${statusInfo.color}-500`} />
+                            <span className={`text-xs px-2 py-1 rounded-full text-${statusInfo.color}-600 bg-${statusInfo.color}-100`}>
+                              {statusInfo.label}
+                            </span>
+                          </div>
+                          <span className={`text-xs px-2 py-1 rounded-full ${getPriorityInfo(goal.priority)}`}>
+                            {goal.priority}
+                          </span>
+                        </div>
+                        
+                        <h4 className="font-semibold text-gray-900 mb-2 line-clamp-2">
+                          {goal.title}
+                        </h4>
+                        
+                        <p className="text-sm text-gray-600 mb-3 line-clamp-2">
+                          {goal.description}
+                        </p>
+                        
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs px-2 py-1 bg-gray-200 text-gray-600 rounded-full">
+                            {goal.category}
+                          </span>
+                          
+                          {goal.roadmap && goal.roadmap.length > 0 && (
+                            <div className="flex items-center space-x-2">
+                              <div className="w-16 bg-gray-200 rounded-full h-1.5">
+                                <div 
+                                  className={`h-1.5 bg-${statusInfo.color}-500 rounded-full`}
+                                  style={{ width: `${progress}%` }}
+                                ></div>
+                              </div>
+                              <span className="text-xs text-gray-500">{progress}%</span>
+                            </div>
+                          )}
+                        </div>
+                        
+                        {goal.targetDate && (
+                          <div className="mt-2 text-xs text-gray-500 flex items-center">
+                            <CalendarIcon className="w-3 h-3 mr-1" />
+                            Due: {new Date(goal.targetDate).toLocaleDateString()}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-center py-20">
+                  <TrophyIcon className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <h4 className="text-lg font-medium text-gray-900 mb-2">No goals found</h4>
+                  <p className="text-gray-500">
+                    {searchTerm || statusFilter !== 'all' || categoryFilter !== 'all' || priorityFilter !== 'all'
+                      ? 'Try adjusting your filters or search term.'
+                      : 'Create your first goal to get started!'
+                    }
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Goal Details Modal */}
       {showGoalModal && selectedGoal && (
