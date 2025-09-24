@@ -63,7 +63,8 @@ const goalSchema = new mongoose.Schema({
     },
     description: {
       type: String,
-      trim: true
+      trim: true,
+      maxlength: 100000 // Enhanced: Allow up to 1000 characters for detailed descriptions
     },
     completed: {
       type: Boolean,
@@ -100,6 +101,23 @@ const goalSchema = new mongoose.Schema({
     trim: true,
     lowercase: true
   }],
+  // Added: Progress entries for tracking detailed progress history
+  progressEntries: [{
+    progressType: {
+      type: String,
+      enum: ['milestone', 'numeric', 'completion']
+    },
+    currentValue: Number,
+    targetValue: Number,
+    progressPercentage: Number,
+    milestone: String,
+    notes: String,
+    date: {
+      type: Date,
+      default: Date.now
+    },
+    id: String
+  }],
   notes: [{
     content: {
       type: String,
@@ -128,16 +146,11 @@ const goalSchema = new mongoose.Schema({
   toObject: { virtuals: true }
 });
 
-// Removed duplicate indexes
-// The following indexes were removed because they were redundant:
-// - `goalSchema.index({ userId: 1, category: 1 });`
-// - `goalSchema.index({ userId: 1, status: 1 });`
-// - `goalSchema.index({ userId: 1, createdAt: -1 });`
-// - `goalSchema.index({ userId: 1, businessId: 1 });`
-
 // Optimized compound indexes for efficient queries
 goalSchema.index({ userId: 1, category: 1, status: 1 });
 goalSchema.index({ userId: 1, createdAt: -1 });
+// Added: Index for targetDate queries
+goalSchema.index({ userId: 1, targetDate: 1 });
 
 goalSchema.virtual('roadmapProgress').get(function() {
   if (!this.roadmap || this.roadmap.length === 0) return 0;
@@ -145,25 +158,52 @@ goalSchema.virtual('roadmapProgress').get(function() {
   return Math.round((completedSteps / this.roadmap.length) * 100);
 });
 
+// Enhanced pre-save middleware combining both functionalities
 goalSchema.pre('save', function(next) {
+  // Enhanced: Handle roadmap progress and auto-status updates
   if (this.roadmap && this.roadmap.length > 0) {
     const completedSteps = this.roadmap.filter(step => step.completed).length;
-    this.progress = Math.round((completedSteps / this.roadmap.length) * 100);
+    const totalSteps = this.roadmap.length;
+    this.progress = Math.round((completedSteps / totalSteps) * 100);
+    
+    // Store roadmapProgress as a calculated field for compatibility
+    this.roadmapProgress = this.progress;
 
+    // Auto-update status based on roadmap progress
     if (this.progress === 100 && this.status !== 'achieved') {
+      // All steps completed - mark as achieved
       this.status = 'achieved';
-      this.achievedAt = new Date();
-    } else if (this.progress > 0 && this.status === 'not_started') {
-      this.status = 'in_progress';
-      this.startedAt = new Date();
+      if (!this.achievedAt) {
+        this.achievedAt = new Date();
+      }
+    } else if (this.progress > 0 && this.progress < 100) {
+      // Some steps completed but not all - mark as in progress
+      if (this.status === 'not_started') {
+        this.status = 'in_progress';
+        if (!this.startedAt) {
+          this.startedAt = new Date();
+        }
+      }
+      // If status was 'achieved' but now we have incomplete steps, revert to in_progress
+      else if (this.status === 'achieved') {
+        this.status = 'in_progress';
+        this.achievedAt = null; // Clear achieved date since it's no longer complete
+      }
     }
+    // If progress is 0 and status was in_progress or achieved, we could optionally revert to not_started
+    // but typically we'd keep it as in_progress once started unless manually changed
   }
 
+  // Handle manual status changes that aren't roadmap-related
   if (this.isModified('status')) {
     if (this.status === 'in_progress' && !this.startedAt) {
       this.startedAt = new Date();
     } else if (this.status === 'achieved' && !this.achievedAt) {
       this.achievedAt = new Date();
+    } else if (this.status === 'not_started') {
+      // If manually set back to not_started, clear timestamps
+      this.startedAt = null;
+      this.achievedAt = null;
     }
   }
 
@@ -210,10 +250,17 @@ goalSchema.methods.addRoadmapStep = function(step, description, dueDate) {
   return this.save();
 };
 
-goalSchema.methods.completeRoadmapStep = function(stepIndex) {
+// Enhanced: Method to complete roadmap step with detailed description
+goalSchema.methods.completeRoadmapStep = function(stepIndex, completionNotes = '') {
   if (this.roadmap[stepIndex]) {
     this.roadmap[stepIndex].completed = true;
     this.roadmap[stepIndex].completedAt = new Date();
+    
+    // Enhanced: Store completion notes in description if provided
+    if (completionNotes && completionNotes.trim()) {
+      this.roadmap[stepIndex].description = completionNotes.trim();
+    }
+    
     return this.save();
   }
   throw new Error('Step not found');
@@ -226,6 +273,20 @@ goalSchema.methods.addNote = function(content) {
 
 goalSchema.methods.updateStatus = function(newStatus) {
   this.status = newStatus;
+  return this.save();
+};
+
+// Enhanced: Method to add progress entry
+goalSchema.methods.addProgressEntry = function(progressData) {
+  const progressEntry = {
+    ...progressData,
+    date: new Date(),
+    id: new Date().getTime().toString()
+  };
+  
+  this.progressEntries = this.progressEntries || [];
+  this.progressEntries.push(progressEntry);
+  
   return this.save();
 };
 

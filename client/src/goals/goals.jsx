@@ -1,111 +1,139 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import {
+  TrophyIcon,
+  ChartBarIcon,
+  ArrowTrendingUpIcon,
+  FlagIcon,
+  ArrowLeftIcon
+} from '@heroicons/react/24/outline';
 
-const API_URL = 'http://localhost:5001/api/goals';
+// Import components
+import SetGoals from './setGoals';
+import Progress from './progress';
+import Overview from './overveiw';
 
 const Goals = () => {
-  const [goals, setGoals] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState({ title: '', description: '', category: 'personal', priority: 'medium' });
-  const [editingGoal, setEditingGoal] = useState(null);
+  const navigate = useNavigate();
+  
+  // State
+  const [activeTab, setActiveTab] = useState('overview');
 
-  // Fetch all goals
-  const fetchGoals = async () => {
-    setLoading(true);
-    const res = await fetch(API_URL, {
-      headers: { 'user-id': localStorage.getItem('userId') }
-    });
-    const data = await res.json();
-    setGoals(data.goals || []);
-    setLoading(false);
+  // Navigation tabs
+  const tabs = [
+    { id: 'overview', name: 'Overview', icon: ChartBarIcon },
+    { id: 'setGoals', name: 'Set Goals', icon: FlagIcon },
+    { id: 'progress', name: 'Progress', icon: ArrowTrendingUpIcon }
+  ];
+
+  // Get tab-specific header content
+  const getHeaderContent = () => {
+    switch (activeTab) {
+      case 'overview':
+        return {
+          title: 'Goals Overview',
+          subtitle: 'Track your progress and achievements across all goals'
+        };
+      case 'setGoals':
+        return {
+          title: 'Goal Management',
+          subtitle: 'Create, edit, and manage your personal and professional goals'
+        };
+      case 'progress':
+        return {
+          title: 'Progress Tracking',
+          subtitle: 'Log progress updates and monitor your goal achievements'
+        };
+      default:
+        return {
+          title: 'Goals Center',
+          subtitle: 'Track, manage, and achieve your personal and professional goals'
+        };
+    }
   };
 
-  useEffect(() => { fetchGoals(); }, []);
-
-  // Create or update goal
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    const method = editingGoal ? 'PUT' : 'POST';
-    const url = editingGoal ? `${API_URL}/${editingGoal._id}` : API_URL;
-    await fetch(url, {
-      method,
-      headers: { 'Content-Type': 'application/json', 'user-id': localStorage.getItem('userId') },
-      body: JSON.stringify(form)
-    });
-    setForm({ title: '', description: '', category: 'personal', priority: 'medium' });
-    setEditingGoal(null);
-    fetchGoals();
+  // Render active component content only (without their headers)
+  const renderActiveComponent = () => {
+    switch (activeTab) {
+      case 'overview':
+        return <Overview />;
+      case 'setGoals':
+        return <SetGoals />;
+      case 'progress':
+        return <Progress />;
+      default:
+        return <Overview />;
+    }
   };
 
-  // Delete goal
-  const handleDelete = async (id) => {
-    if (!window.confirm('Delete this goal?')) return;
-    await fetch(`${API_URL}/${id}`, {
-      method: 'DELETE',
-      headers: { 'user-id': localStorage.getItem('userId') }
-    });
-    fetchGoals();
-  };
-
-  // Mark as achieved
-  const handleAchieve = async (goal) => {
-    await fetch(`${API_URL}/${goal._id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', 'user-id': localStorage.getItem('userId') },
-      body: JSON.stringify({ status: 'achieved' })
-    });
-    fetchGoals();
-  };
+  const headerContent = getHeaderContent();
 
   return (
-    <div>
-      <h2>Goals</h2>
-      <form onSubmit={handleSubmit}>
-        <input
-          placeholder="Title"
-          value={form.title}
-          onChange={e => setForm({ ...form, title: e.target.value })}
-          required
-        />
-        <input
-          placeholder="Description"
-          value={form.description}
-          onChange={e => setForm({ ...form, description: e.target.value })}
-        />
-        <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
-          <option value="personal">Personal</option>
-          <option value="financial">Financial</option>
-          <option value="health">Health</option>
-          <option value="business">Business</option>
-          <option value="education">Education</option>
-          <option value="awards">Awards</option>
-          <option value="career">Career</option>
-          <option value="relationships">Relationships</option>
-          <option value="travel">Travel</option>
-          <option value="hobbies">Hobbies</option>
-          <option value="spiritual">Spiritual</option>
-          <option value="other">Other</option>
-        </select>
-        <select value={form.priority} onChange={e => setForm({ ...form, priority: e.target.value })}>
-          <option value="low">Low</option>
-          <option value="medium">Medium</option>
-          <option value="high">High</option>
-          <option value="critical">Critical</option>
-        </select>
-        <button type="submit">{editingGoal ? 'Update' : 'Add'} Goal</button>
-        {editingGoal && <button onClick={() => { setEditingGoal(null); setForm({ title: '', description: '', category: 'personal', priority: 'medium' }); }}>Cancel</button>}
-      </form>
-      {loading ? <p>Loading...</p> : (
-        <ul>
-          {goals.map(goal => (
-            <li key={goal._id}>
-              <strong>{goal.title}</strong> ({goal.category}) - {goal.status}
-              <button onClick={() => { setEditingGoal(goal); setForm(goal); }}>Edit</button>
-              <button onClick={() => handleDelete(goal._id)}>Delete</button>
-              {goal.status !== 'achieved' && <button onClick={() => handleAchieve(goal)}>Mark as Achieved</button>}
-            </li>
-          ))}
-        </ul>
-      )}
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+      {/* Header - Always Visible */}
+      <div className="bg-white shadow-sm border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center space-x-4">
+              <button
+                onClick={() => navigate('/dashboard')}
+                className="flex items-center space-x-2 px-3 py-2 text-gray-600 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all duration-200"
+              >
+                <ArrowLeftIcon className="w-5 h-5" />
+                <span className="font-medium">Back to Dashboard</span>
+              </button>
+              
+              <div className="border-l border-gray-300 h-6"></div>
+              
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">
+                  {headerContent.title}
+                </h1>
+                <p className="text-sm text-gray-600">
+                  {headerContent.subtitle}
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2 px-3 py-2 bg-blue-50 rounded-lg">
+                <TrophyIcon className="w-5 h-5 text-blue-600" />
+                <span className="text-sm font-medium text-blue-900">Goals Dashboard</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Navigation Tabs - Always Visible */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <nav className="flex space-x-8">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center space-x-2 py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === tab.id
+                      ? 'border-blue-500 text-blue-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <Icon className="w-5 h-5" />
+                  <span>{tab.name}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+      </div>
+
+      {/* Render Active Component Content */}
+      <div className="flex-1">
+        {renderActiveComponent()}
+      </div>
     </div>
   );
 };

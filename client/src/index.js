@@ -6,7 +6,7 @@ import Register from './auth/register';
 import Login from './auth/login';
 import Dashboard from './home/dashboard';
 import Finances from './finance/finances';
-import GoalsIndex from './goals/goalsIndex';
+import Goals from './goals/goals.jsx';
 
 // Enhanced Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -105,15 +105,6 @@ const ProjectsPage = () => (
   </div>
 );
 
-const GoalsPage = () => (
-  <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
-    <div className="bg-white rounded-2xl shadow-xl p-8">
-      <h2 className="text-2xl font-bold text-gray-900 mb-4">Goals Module</h2>
-      <p className="text-gray-600">Goal tracking coming soon...</p>
-    </div>
-  </div>
-);
-
 const ReadingPage = () => (
   <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
     <div className="bg-white rounded-2xl shadow-xl p-8">
@@ -173,12 +164,12 @@ const App = () => {
         } />
         <Route path="/goals" element={
           <ProtectedRoute>
-            <GoalsIndex />
+            <Goals />
           </ProtectedRoute>
         } />
         <Route path="/goals/new" element={
           <ProtectedRoute>
-            <GoalsIndex />
+            <Goals />
           </ProtectedRoute>
         } />
         <Route path="/reading" element={
