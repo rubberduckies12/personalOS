@@ -40,7 +40,10 @@ const costTracker = {
   requests: new Map()
 };
 
-// Helper functions from previous version
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
 const getDateKeys = () => {
   const now = new Date();
   const daily = now.toISOString().split('T')[0];
@@ -71,6 +74,64 @@ const estimateRequestCost = (model, messageLength, maxTokens) => {
   const estimatedInputTokens = Math.ceil(messageLength / 4);
   const estimatedOutputTokens = maxTokens || 1000;
   return calculateCost(model, estimatedInputTokens, estimatedOutputTokens);
+};
+
+const updateCostTracking = (userId, actualCost, dateKeys) => {
+  const { daily, monthly } = dateKeys;
+  
+  const currentDaily = costTracker.daily.get(`${userId}-${daily}`) || 0;
+  costTracker.daily.set(`${userId}-${daily}`, currentDaily + actualCost);
+  
+  const currentMonthly = costTracker.monthly.get(`${userId}-${monthly}`) || 0;
+  costTracker.monthly.set(`${userId}-${monthly}`, currentMonthly + actualCost);
+  
+  cleanupCostTracking();
+};
+
+const cleanupCostTracking = () => {
+  const now = new Date();
+  const thirtyOneDaysAgo = new Date(now.getTime() - 31 * 24 * 60 * 60 * 1000);
+  const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1);
+  
+  for (const [key] of costTracker.daily) {
+    const dateStr = key.split('-').slice(-3).join('-');
+    const entryDate = new Date(dateStr);
+    if (entryDate < thirtyOneDaysAgo) {
+      costTracker.daily.delete(key);
+    }
+  }
+  
+  for (const [key] of costTracker.monthly) {
+    const [userId, year, month] = key.split('-');
+    const entryDate = new Date(parseInt(year), parseInt(month) - 1, 1);
+    if (entryDate < twelveMonthsAgo) {
+      costTracker.monthly.delete(key);
+    }
+  }
+};
+
+// ============================================================================
+// MIDDLEWARE
+// ============================================================================
+
+const authenticateUser = async (req, res, next) => {
+  try {
+    const userId = req.headers['user-id'] || req.body.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'User ID required' });
+    }
+    
+    const user = await Account.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    req.userId = userId;
+    req.user = user;
+    next();
+  } catch (error) {
+    res.status(500).json({ error: 'Authentication failed' });
+  }
 };
 
 const trackCosts = async (req, res, next) => {
@@ -130,63 +191,10 @@ const trackCosts = async (req, res, next) => {
   next();
 };
 
-const updateCostTracking = (userId, actualCost, dateKeys) => {
-  const { daily, monthly } = dateKeys;
-  
-  const currentDaily = costTracker.daily.get(`${userId}-${daily}`) || 0;
-  costTracker.daily.set(`${userId}-${daily}`, currentDaily + actualCost);
-  
-  const currentMonthly = costTracker.monthly.get(`${userId}-${monthly}`) || 0;
-  costTracker.monthly.set(`${userId}-${monthly}`, currentMonthly + actualCost);
-  
-  cleanupCostTracking();
-};
+// ============================================================================
+// CONTEXT & MEMORY FUNCTIONS
+// ============================================================================
 
-const cleanupCostTracking = () => {
-  const now = new Date();
-  const thirtyOneDaysAgo = new Date(now.getTime() - 31 * 24 * 60 * 60 * 1000);
-  const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 12, 1);
-  
-  for (const [key] of costTracker.daily) {
-    const dateStr = key.split('-').slice(-3).join('-');
-    const entryDate = new Date(dateStr);
-    if (entryDate < thirtyOneDaysAgo) {
-      costTracker.daily.delete(key);
-    }
-  }
-  
-  for (const [key] of costTracker.monthly) {
-    const [userId, year, month] = key.split('-');
-    const entryDate = new Date(parseInt(year), parseInt(month) - 1, 1);
-    if (entryDate < twelveMonthsAgo) {
-      costTracker.monthly.delete(key);
-    }
-  }
-};
-
-const authenticateUser = async (req, res, next) => {
-  try {
-    const userId = req.headers['user-id'] || req.body.userId;
-    if (!userId) {
-      return res.status(401).json({ error: 'User ID required' });
-    }
-    
-    const user = await Account.findById(userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    req.userId = userId;
-    req.user = user;
-    next();
-  } catch (error) {
-    res.status(500).json({ error: 'Authentication failed' });
-  }
-};
-
-// ENHANCED: Context & Memory Functions
-
-// Generate embeddings for messages to find relevant context
 const generateEmbedding = async (text) => {
   try {
     const response = await openai.embeddings.create({
@@ -200,7 +208,6 @@ const generateEmbedding = async (text) => {
   }
 };
 
-// Calculate cosine similarity between embeddings
 const cosineSimilarity = (a, b) => {
   const dotProduct = a.reduce((sum, val, i) => sum + val * b[i], 0);
   const magnitudeA = Math.sqrt(a.reduce((sum, val) => sum + val * val, 0));
@@ -208,7 +215,6 @@ const cosineSimilarity = (a, b) => {
   return dotProduct / (magnitudeA * magnitudeB);
 };
 
-// ENHANCED: Context-aware message selection
 const selectRelevantMessages = async (sessionId, currentMessage, chatHistory, maxMessages = 10) => {
   try {
     if (!chatHistory) return [];
@@ -216,16 +222,13 @@ const selectRelevantMessages = async (sessionId, currentMessage, chatHistory, ma
     const conversation = chatHistory.getConversation(sessionId);
     if (!conversation || conversation.messages.length === 0) return [];
 
-    // Generate embedding for current message
     const currentEmbedding = await generateEmbedding(currentMessage);
     if (!currentEmbedding) {
-      // Fallback to recent messages
       return conversation.messages.slice(-maxMessages);
     }
 
     const messageScores = [];
 
-    // Score all previous messages based on relevance
     for (const msg of conversation.messages) {
       const cacheKey = `${sessionId}-${msg._id}`;
       let embedding = contextCache.embeddings.get(cacheKey);
@@ -242,23 +245,20 @@ const selectRelevantMessages = async (sessionId, currentMessage, chatHistory, ma
         messageScores.push({
           message: msg,
           score: similarity,
-          recency: conversation.messages.indexOf(msg) / conversation.messages.length // Recent messages get bonus
+          recency: conversation.messages.indexOf(msg) / conversation.messages.length
         });
       }
     }
 
-    // Sort by combined score (relevance + recency)
     messageScores.sort((a, b) => {
       const scoreA = a.score * 0.7 + a.recency * 0.3;
       const scoreB = b.score * 0.7 + b.recency * 0.3;
       return scoreB - scoreA;
     });
 
-    // Return top relevant messages, but always include last 2 for context
     const recentMessages = conversation.messages.slice(-2);
     const relevantMessages = messageScores.slice(0, maxMessages - 2).map(item => item.message);
     
-    // Combine and deduplicate
     const allMessages = [...relevantMessages, ...recentMessages];
     const uniqueMessages = allMessages.filter((msg, index, self) => 
       self.findIndex(m => m._id?.toString() === msg._id?.toString()) === index
@@ -271,10 +271,9 @@ const selectRelevantMessages = async (sessionId, currentMessage, chatHistory, ma
   }
 };
 
-// ENHANCED: Long-term memory - store conversation summaries
 const storeConversationSummary = async (sessionId, messages, userId) => {
   try {
-    if (messages.length < 5) return; // Don't summarize very short conversations
+    if (messages.length < 5) return;
 
     const conversationText = messages.map(m => `${m.role}: ${m.content}`).join('\n');
     
@@ -311,7 +310,6 @@ const storeConversationSummary = async (sessionId, messages, userId) => {
   }
 };
 
-// ENHANCED: Cross-schema entity linking
 const detectAndLinkEntities = async (message, userId) => {
   try {
     const entities = {
@@ -322,7 +320,6 @@ const detectAndLinkEntities = async (message, userId) => {
       skills: []
     };
 
-    // Get user's data for entity matching
     const [books, projects, goals, skills] = await Promise.all([
       Reading.getByUser(userId),
       Project.getByUser(userId),
@@ -385,7 +382,6 @@ const detectAndLinkEntities = async (message, userId) => {
       }
     }
 
-    // Detect potential new entities to create
     const actionPatterns = {
       createTask: /(?:add task|create task|need to|should|todo|task:)\s*([^.!?]+)/i,
       finishReading: /(?:finish|complete|done with|finished)\s*reading\s*([^.!?]+)/i,
@@ -413,7 +409,10 @@ const detectAndLinkEntities = async (message, userId) => {
   }
 };
 
-// ENHANCED: Modular summary functions (keeping existing ones and adding new)
+// ============================================================================
+// SUMMARY FUNCTIONS
+// ============================================================================
+
 const getProductivitySummary = async (userId) => {
   const [tasks, projects] = await Promise.all([
     Task.getByUser(userId),
@@ -529,170 +528,6 @@ const getGoalsSummary = async (userId) => {
   };
 };
 
-// NEW: Historical trends analysis
-const getTrendsAnalysis = async (userId, area, timeframe = 'month') => {
-  const now = new Date();
-  const periods = [];
-  
-  // Generate date ranges based on timeframe
-  for (let i = 0; i < 6; i++) {
-    const endDate = new Date(now);
-    const startDate = new Date(now);
-    
-    if (timeframe === 'week') {
-      endDate.setDate(endDate.getDate() - (i * 7));
-      startDate.setDate(startDate.getDate() - ((i + 1) * 7));
-    } else if (timeframe === 'month') {
-      endDate.setMonth(endDate.getMonth() - i);
-      startDate.setMonth(startDate.getMonth() - (i + 1));
-    }
-    
-    periods.push({ start: startDate, end: endDate, label: `Period ${6-i}` });
-  }
-
-  const trends = {};
-
-  try {
-    switch (area) {
-      case 'productivity':
-        for (const period of periods) {
-          const tasks = await Task.find({
-            userId,
-            createdAt: { $gte: period.start, $lt: period.end }
-          });
-          const projects = await Project.find({
-            userId,
-            createdAt: { $gte: period.start, $lt: period.end }
-          });
-          
-          trends[period.label] = {
-            tasksCreated: tasks.length,
-            tasksCompleted: tasks.filter(t => t.status === 'completed').length,
-            projectsCreated: projects.length,
-            projectsCompleted: projects.filter(p => p.status === 'completed').length
-          };
-        }
-        break;
-
-      case 'finance':
-        for (const period of periods) {
-          const income = await Income.find({
-            userId,
-            date: { $gte: period.start, $lt: period.end }
-          });
-          const totalIncome = income.reduce((sum, inc) => sum + (inc.amount || 0), 0);
-          
-          trends[period.label] = {
-            totalIncome,
-            incomeEntries: income.length,
-            avgIncome: income.length > 0 ? totalIncome / income.length : 0
-          };
-        }
-        break;
-
-      case 'learning':
-        for (const period of periods) {
-          const skills = await Skill.find({
-            userId,
-            createdAt: { $gte: period.start, $lt: period.end }
-          });
-          const readings = await Reading.find({
-            userId,
-            createdAt: { $gte: period.start, $lt: period.end }
-          });
-          
-          trends[period.label] = {
-            skillsStarted: skills.length,
-            booksStarted: readings.length,
-            booksCompleted: readings.filter(r => r.status === 'completed').length
-          };
-        }
-        break;
-
-      case 'goals':
-        for (const period of periods) {
-          const goals = await Goal.find({
-            userId,
-            createdAt: { $gte: period.start, $lt: period.end }
-          });
-          
-          trends[period.label] = {
-            goalsCreated: goals.length,
-            goalsAchieved: goals.filter(g => g.status === 'achieved').length
-          };
-        }
-        break;
-    }
-  } catch (error) {
-    console.error(`Error getting ${area} trends:`, error);
-  }
-
-  return trends;
-};
-
-// NEW: Prediction analysis
-const getPredictionAnalysis = async (userId, area) => {
-  try {
-    switch (area) {
-      case 'budget_overspend':
-        const budgets = await Budget.getActiveBudgets(userId);
-        const predictions = budgets.map(budget => {
-          const spentPercentage = budget.spentPercentage || 0;
-          const daysInMonth = 30;
-          const dayOfMonth = new Date().getDate();
-          const projectedSpending = (spentPercentage / dayOfMonth) * daysInMonth;
-          
-          return {
-            category: budget.category,
-            currentSpent: spentPercentage,
-            projectedSpending,
-            overspendRisk: projectedSpending > 100 ? 'high' : projectedSpending > 80 ? 'medium' : 'low',
-            daysRemaining: daysInMonth - dayOfMonth
-          };
-        });
-        return { type: 'budget_overspend', predictions };
-
-      case 'goal_completion':
-        const goals = await Goal.getByUser(userId);
-        const activeGoals = goals.filter(g => ['not_started', 'in_progress'].includes(g.status));
-        
-        const goalPredictions = activeGoals.map(goal => {
-          const daysUntilDeadline = goal.deadline ? 
-            Math.ceil((new Date(goal.deadline) - new Date()) / (1000 * 60 * 60 * 24)) : null;
-          
-          // Simple heuristic based on goal age and progress
-          const daysSinceCreated = Math.ceil((new Date() - new Date(goal.createdAt)) / (1000 * 60 * 60 * 24));
-          const progressRate = (goal.progress || 0) / daysSinceCreated;
-          
-          let completionLikelihood = 'unknown';
-          if (daysUntilDeadline && progressRate > 0) {
-            const projectedCompletion = (goal.progress || 0) + (progressRate * daysUntilDeadline);
-            completionLikelihood = projectedCompletion >= 100 ? 'high' : 
-                                   projectedCompletion >= 70 ? 'medium' : 'low';
-          }
-          
-          return {
-            goalId: goal._id,
-            title: goal.title,
-            currentProgress: goal.progress || 0,
-            daysUntilDeadline,
-            completionLikelihood,
-            recommendedDailyProgress: daysUntilDeadline ? 
-              Math.ceil((100 - (goal.progress || 0)) / daysUntilDeadline) : null
-          };
-        });
-        
-        return { type: 'goal_completion', predictions: goalPredictions };
-
-      default:
-        return { type: area, predictions: [] };
-    }
-  } catch (error) {
-    console.error(`Error getting ${area} predictions:`, error);
-    return { type: area, predictions: [], error: error.message };
-  }
-};
-
 const getSmartUserSummary = async (userId, context = 'general') => {
   const summaryMap = {
     productivity: () => getProductivitySummary(userId),
@@ -797,7 +632,11 @@ Overall Status:
   return `${basePrompt}\n\n${contextPrompts[context] || contextPrompts.general}\n\nProvide helpful, specific, and actionable advice based on this data.`;
 };
 
-// ENHANCED: Main chat endpoint with advanced context and memory
+// ============================================================================
+// API ROUTES
+// ============================================================================
+
+// POST /api/ai/chat - Enhanced chat endpoint
 router.post('/chat', authenticateUser, trackCosts, async (req, res) => {
   try {
     const {
@@ -815,19 +654,14 @@ router.post('/chat', authenticateUser, trackCosts, async (req, res) => {
       return res.status(400).json({ error: 'Message is required' });
     }
 
-    // Analyze message context for smart summarization
     const messageContext = includeContext ? analyzeMessageContext(message) : 'general';
-    
-    // Detect and link entities
     const entityLinks = await detectAndLinkEntities(message, req.userId);
     
-    // Get context-aware user data summary
     let userSummary = null;
     if (includeContext) {
       userSummary = await getSmartUserSummary(req.userId, messageContext);
     }
 
-    // Find or create chat history
     let chatHistory = null;
     if (projectId) {
       chatHistory = await AiChatHistory.createOrGetProjectChat(
@@ -838,7 +672,6 @@ router.post('/chat', authenticateUser, trackCosts, async (req, res) => {
       );
     }
 
-    // Build conversation history with enhanced context selection
     let messages = [];
     
     if (userSummary && includeContext) {
@@ -848,7 +681,6 @@ router.post('/chat', authenticateUser, trackCosts, async (req, res) => {
       });
     }
 
-    // Add relevant conversation history (not just recent)
     if (sessionId && chatHistory) {
       const relevantMessages = await selectRelevantMessages(sessionId, message, chatHistory, 8);
       messages.push(...relevantMessages.map(msg => ({
@@ -857,7 +689,6 @@ router.post('/chat', authenticateUser, trackCosts, async (req, res) => {
       })));
     }
 
-    // Add current message
     messages.push({
       role: 'user',
       content: message
@@ -865,7 +696,6 @@ router.post('/chat', authenticateUser, trackCosts, async (req, res) => {
 
     const startTime = Date.now();
 
-    // Handle streaming vs non-streaming (same as before)
     if (stream) {
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -937,7 +767,6 @@ router.post('/chat', authenticateUser, trackCosts, async (req, res) => {
           });
         }
 
-        // Save to chat history and store summary for long-term memory
         if (sessionId && chatHistory) {
           await chatHistory.addMessage(sessionId, 'user', message, {
             tokens: { input: inputTokens, output: 0 },
@@ -951,7 +780,6 @@ router.post('/chat', authenticateUser, trackCosts, async (req, res) => {
             metadata: { temperature, maxTokens, responseTime, cost: actualCost, context: messageContext }
           });
 
-          // Store conversation summary for long-term memory
           const allMessages = [...messages, { role: 'assistant', content: fullResponse }];
           await storeConversationSummary(sessionId, allMessages, req.userId);
         }
@@ -999,7 +827,6 @@ router.post('/chat', authenticateUser, trackCosts, async (req, res) => {
       }
 
     } else {
-      // Non-streaming response
       const completion = await openai.chat.completions.create({
         model: model,
         messages: messages,
@@ -1055,7 +882,6 @@ router.post('/chat', authenticateUser, trackCosts, async (req, res) => {
           metadata: { temperature, maxTokens, responseTime, cost: actualCost, context: messageContext }
         });
 
-        // Store conversation summary for long-term memory
         const allMessages = [...messages, { role: 'assistant', content: response }];
         await storeConversationSummary(sessionId, allMessages, req.userId);
       }
@@ -1108,60 +934,6 @@ router.post('/chat', authenticateUser, trackCosts, async (req, res) => {
     }
   }
 });
-
-// NEW: Get available summary contexts
-router.get('/contexts', authenticateUser, (req, res) => {
-  res.json({
-    contexts: [
-      {
-        id: 'general',
-        name: 'General Overview',
-        description: 'Comprehensive view across all areas'
-      },
-      {
-        id: 'productivity',
-        name: 'Productivity Focus',
-        description: 'Tasks, projects, and time management'
-      },
-      {
-        id: 'finance',
-        name: 'Financial Focus',
-        description: 'Budgets, spending, and money management'
-      },
-      {
-        id: 'learning',
-        name: 'Learning & Development',
-        description: 'Skills, courses, and personal growth'
-      },
-      {
-        id: 'goals',
-        name: 'Goals & Planning',
-        description: 'Goal progress and achievement strategies'
-      }
-    ]
-  });
-});
-
-// ENHANCED: Get modular summary
-router.get('/summary/:context?', authenticateUser, async (req, res) => {
-  try {
-    const context = req.params.context || 'general';
-    const userSummary = await getSmartUserSummary(req.userId, context);
-    
-    res.json({
-      context,
-      summary: userSummary,
-      timestamp: new Date().toISOString()
-    });
-    
-  } catch (error) {
-    console.error('Summary error:', error);
-    res.status(500).json({ error: 'Failed to get summary' });
-  }
-});
-
-// Keep all other existing endpoints unchanged...
-// (voice, usage, limits, analyze, chat/new, chat/history, models)
 
 // POST /api/ai/voice - Voice chat endpoint
 router.post('/voice', authenticateUser, trackCosts, async (req, res) => {
@@ -1252,7 +1024,7 @@ router.post('/voice', authenticateUser, trackCosts, async (req, res) => {
   }
 });
 
-// Keep all other existing endpoints...
+// GET /api/ai/usage - Usage tracking endpoint
 router.get('/usage', authenticateUser, async (req, res) => {
   try {
     const { period = 'current' } = req.query;
@@ -1319,77 +1091,93 @@ router.get('/usage', authenticateUser, async (req, res) => {
   }
 });
 
-router.post('/limits', authenticateUser, async (req, res) => {
+// GET /api/ai/summary - General summary (no context)
+router.get('/summary', authenticateUser, async (req, res) => {
   try {
-    const { dailyLimit, monthlyLimit, perRequestLimit } = req.body;
-    
-    if (dailyLimit !== undefined) COST_LIMITS.DAILY_LIMIT = parseFloat(dailyLimit);
-    if (monthlyLimit !== undefined) COST_LIMITS.MONTHLY_LIMIT = parseFloat(monthlyLimit);
-    if (perRequestLimit !== undefined) COST_LIMITS.PER_REQUEST_LIMIT = parseFloat(perRequestLimit);
+    const context = 'general';
+    const summary = await getSmartUserSummary(req.userId, context);
     
     res.json({
-      message: 'Cost limits updated successfully',
-      limits: COST_LIMITS
+      success: true,
+      context,
+      summary,
+      timestamp: new Date().toISOString()
     });
-    
+
   } catch (error) {
-    console.error('Limits update error:', error);
-    res.status(500).json({ error: 'Failed to update limits' });
+    console.error('Error generating summary:', error);
+    res.status(500).json({
+      error: 'Failed to generate summary',
+      details: error.message
+    });
   }
 });
 
-router.post('/chat/new', authenticateUser, async (req, res) => {
+// GET /api/ai/summary/:context - Context-specific summary
+router.get('/summary/:context', authenticateUser, async (req, res) => {
   try {
-    const { projectId, title, description, tags = [] } = req.body;
-
-    if (!projectId) {
-      return res.status(400).json({ error: 'Project ID is required' });
+    const { context } = req.params;
+    
+    const validContexts = ['productivity', 'finance', 'learning', 'goals', 'general'];
+    if (!validContexts.includes(context)) {
+      return res.status(400).json({ 
+        error: 'Invalid context',
+        validContexts 
+      });
     }
-
-    const chatHistory = await AiChatHistory.createOrGetProjectChat(
-      req.userId,
-      projectId,
-      title || 'New AI Conversation',
-      description || ''
-    );
-
-    const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    await chatHistory.startNewConversation(sessionId, tags);
-
+    
+    const summary = await getSmartUserSummary(req.userId, context);
+    
     res.json({
-      sessionId,
-      chatHistoryId: chatHistory._id,
-      message: 'New conversation started'
+      success: true,
+      context,
+      summary,
+      timestamp: new Date().toISOString()
     });
 
   } catch (error) {
-    console.error('New chat error:', error);
-    res.status(500).json({ error: 'Failed to start new conversation' });
-  }
-});
-
-router.get('/chat/history/:projectId', authenticateUser, async (req, res) => {
-  try {
-    const { projectId } = req.params;
-    
-    const chatHistory = await AiChatHistory.getByProject(req.userId, projectId);
-    
-    if (!chatHistory) {
-      return res.json({ conversations: [], totalTokens: 0, totalCost: 0 });
-    }
-
-    res.json({
-      chatHistory: chatHistory.toObject(),
-      conversations: chatHistory.conversations,
-      stats: chatHistory.getConversationStats()
+    console.error('Error generating contextual summary:', error);
+    res.status(500).json({
+      error: 'Failed to generate summary',
+      details: error.message
     });
-
-  } catch (error) {
-    console.error('Chat history error:', error);
-    res.status(500).json({ error: 'Failed to get chat history' });
   }
 });
 
+// GET /api/ai/contexts - Available summary contexts
+router.get('/contexts', authenticateUser, (req, res) => {
+  res.json({
+    contexts: [
+      {
+        id: 'general',
+        name: 'General Overview',
+        description: 'Comprehensive view across all areas'
+      },
+      {
+        id: 'productivity',
+        name: 'Productivity Focus',
+        description: 'Tasks, projects, and time management'
+      },
+      {
+        id: 'finance',
+        name: 'Financial Focus',
+        description: 'Budgets, spending, and money management'
+      },
+      {
+        id: 'learning',
+        name: 'Learning & Development',
+        description: 'Skills, courses, and personal growth'
+      },
+      {
+        id: 'goals',
+        name: 'Goals & Planning',
+        description: 'Goal progress and achievement strategies'
+      }
+    ]
+  });
+});
+
+// POST /api/ai/analyze - Data analysis endpoint
 router.post('/analyze', authenticateUser, trackCosts, async (req, res) => {
   try {
     const { area, timeframe = 'month', specific } = req.body;
@@ -1466,6 +1254,7 @@ router.post('/analyze', authenticateUser, trackCosts, async (req, res) => {
   }
 });
 
+// GET /api/ai/models - Available models
 router.get('/models', (req, res) => {
   res.json({
     chat: [
@@ -1516,15 +1305,87 @@ router.get('/models', (req, res) => {
   });
 });
 
-// NEW: Daily insights automation (to be called by cron job)
+// POST /api/ai/limits - Update cost limits
+router.post('/limits', authenticateUser, async (req, res) => {
+  try {
+    const { dailyLimit, monthlyLimit, perRequestLimit } = req.body;
+    
+    if (dailyLimit !== undefined) COST_LIMITS.DAILY_LIMIT = parseFloat(dailyLimit);
+    if (monthlyLimit !== undefined) COST_LIMITS.MONTHLY_LIMIT = parseFloat(monthlyLimit);
+    if (perRequestLimit !== undefined) COST_LIMITS.PER_REQUEST_LIMIT = parseFloat(perRequestLimit);
+    
+    res.json({
+      message: 'Cost limits updated successfully',
+      limits: COST_LIMITS
+    });
+    
+  } catch (error) {
+    console.error('Limits update error:', error);
+    res.status(500).json({ error: 'Failed to update limits' });
+  }
+});
+
+// POST /api/ai/chat/new - Start new conversation
+router.post('/chat/new', authenticateUser, async (req, res) => {
+  try {
+    const { projectId, title, description, tags = [] } = req.body;
+
+    if (!projectId) {
+      return res.status(400).json({ error: 'Project ID is required' });
+    }
+
+    const chatHistory = await AiChatHistory.createOrGetProjectChat(
+      req.userId,
+      projectId,
+      title || 'New AI Conversation',
+      description || ''
+    );
+
+    const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    await chatHistory.startNewConversation(sessionId, tags);
+
+    res.json({
+      sessionId,
+      chatHistoryId: chatHistory._id,
+      message: 'New conversation started'
+    });
+
+  } catch (error) {
+    console.error('New chat error:', error);
+    res.status(500).json({ error: 'Failed to start new conversation' });
+  }
+});
+
+// GET /api/ai/chat/history/:projectId - Get chat history
+router.get('/chat/history/:projectId', authenticateUser, async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    
+    const chatHistory = await AiChatHistory.getByProject(req.userId, projectId);
+    
+    if (!chatHistory) {
+      return res.json({ conversations: [], totalTokens: 0, totalCost: 0 });
+    }
+
+    res.json({
+      chatHistory: chatHistory.toObject(),
+      conversations: chatHistory.conversations,
+      stats: chatHistory.getConversationStats()
+    });
+
+  } catch (error) {
+    console.error('Chat history error:', error);
+    res.status(500).json({ error: 'Failed to get chat history' });
+  }
+});
+
+// POST /api/ai/automation/daily-brief - Daily insights automation
 router.post('/automation/daily-brief', authenticateUser, async (req, res) => {
   try {
     const summary = await getSmartUserSummary(req.userId, 'general');
-    const trends = await getTrendsAnalysis(req.userId, 'productivity', 'week');
     
     const briefData = {
       summary,
-      trends,
       timestamp: new Date().toISOString()
     };
     

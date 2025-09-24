@@ -18,6 +18,7 @@ const budgetSchema = new mongoose.Schema({
     required: [true, 'Budget category is required'],
     enum: {
       values: [
+        'General',
         'Food & Dining',
         'Transportation',
         'Shopping',

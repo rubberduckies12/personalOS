@@ -14,6 +14,7 @@ const goalsRoute = require('./routes/goals');
 const readingRoute = require('./routes/reading');
 const skillsRoute = require('./routes/skills');
 const financesRoute = require('./routes/finances');
+const aiRoute = require('./routes/ai'); // Add AI route
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -26,7 +27,7 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/personalo
 // CORS configuration
 app.use(cors({
   origin: ['http://localhost:3000', 'http://127.0.0.1:3000'],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'user-id'],
   credentials: false,
   optionsSuccessStatus: 200
@@ -65,6 +66,7 @@ app.use('/api/goals', goalsRoute);
 app.use('/api/reading', readingRoute);
 app.use('/api/skills', skillsRoute);
 app.use('/api/finances', financesRoute);
+app.use('/api/ai', aiRoute); // Add AI route
 
 // 404 handler
 app.use('/api', (req, res) => {
@@ -80,6 +82,7 @@ app.use((err, req, res, next) => {
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
+  console.log(`🤖 AI features enabled with OpenAI API`);
 });
 
 module.exports = app;

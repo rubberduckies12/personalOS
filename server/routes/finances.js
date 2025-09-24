@@ -415,6 +415,77 @@ router.delete('/budgets/:id', async (req, res) => {
   }
 });
 
+// PATCH /api/finances/budgets/:id/spend - Record spending against budget
+router.patch('/budgets/:id/spend', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { spendAmount, description } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({
+        error: 'Invalid budget ID',
+        code: 'INVALID_ID'
+      });
+    }
+
+    if (!spendAmount || spendAmount <= 0) {
+      return res.status(400).json({
+        error: 'Spend amount must be greater than 0',
+        code: 'INVALID_SPEND_AMOUNT'
+      });
+    }
+
+    const budget = await Budget.findOne({
+      _id: id,
+      userId: req.userId
+    });
+
+    if (!budget) {
+      return res.status(404).json({
+        error: 'Budget not found',
+        code: 'BUDGET_NOT_FOUND'
+      });
+    }
+
+    // Add to current spent amount
+    const currentSpent = parseFloat(budget.currentSpent.toString());
+    const newSpentAmount = currentSpent + parseFloat(spendAmount);
+    
+    // Update the budget
+    budget.currentSpent = newSpentAmount;
+    
+    // Optionally append to description with timestamp
+    if (description) {
+      const timestamp = new Date().toLocaleDateString();
+      const existingDescription = budget.description || '';
+      budget.description = existingDescription 
+        ? `${existingDescription}\n[${timestamp}] Spent ${formatCurrency(spendAmount, budget.currency)}: ${description}`
+        : `[${timestamp}] Spent ${formatCurrency(spendAmount, budget.currency)}: ${description}`;
+    }
+    
+    await budget.save();
+
+    res.json({
+      message: 'Spending recorded successfully',
+      code: 'SPENDING_RECORDED',
+      budget: budget.toJSON()
+    });
+
+  } catch (error) {
+    console.error('Error recording spending:', error);
+    res.status(500).json({
+      error: 'Failed to record spending',
+      code: 'SPEND_ERROR'
+    });
+  }
+});
+
+// Helper function for currency formatting (add near other helper functions)
+function formatCurrency(amount, currency = 'GBP') {
+  const symbols = { USD: '$', GBP: '£', EUR: '€' };
+  return `${symbols[currency] || '£'}${parseFloat(amount || 0).toFixed(2)}`;
+}
+
 // ========================================
 // EXPENSE ROUTES
 // ========================================
