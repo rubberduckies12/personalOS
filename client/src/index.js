@@ -6,6 +6,7 @@ import Register from './auth/register';
 import Login from './auth/login';
 import Dashboard from './home/dashboard';
 import Finances from './finance/finances';
+import GoalsIndex from './goals/goalsIndex';
 
 // Enhanced Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -172,12 +173,12 @@ const App = () => {
         } />
         <Route path="/goals" element={
           <ProtectedRoute>
-            <GoalsPage />
+            <GoalsIndex />
           </ProtectedRoute>
         } />
         <Route path="/goals/new" element={
           <ProtectedRoute>
-            <GoalsPage />
+            <GoalsIndex />
           </ProtectedRoute>
         } />
         <Route path="/reading" element={
