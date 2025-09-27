@@ -14,7 +14,11 @@ import {
   PencilIcon,
   UserCircleIcon,
   ArrowRightOnRectangleIcon,
-  Cog6ToothIcon
+  Cog6ToothIcon,
+  BuildingOffice2Icon,
+  PlusIcon,
+  ArrowRightIcon,
+  ClockIcon
 } from '@heroicons/react/24/outline';
 
 const Dashboard = () => {
@@ -32,8 +36,8 @@ const Dashboard = () => {
     skills: { total: 0, mastered: 0, learning: 0 },
     finances: { income: 0, expenses: 0, savings: 0 }
   });
-  const [recentActivity, setRecentActivity] = useState([]);
-  const [todaysFocus, setTodaysFocus] = useState([]);
+  const [businesses, setBusinesses] = useState([]);
+  const [upcomingEvents, setUpcomingEvents] = useState([]);
   const [showWelcome, setShowWelcome] = useState(false);
   const [authError, setAuthError] = useState(false);
 
@@ -95,6 +99,56 @@ const Dashboard = () => {
       // Still redirect even if logout request fails
       navigate('/auth/login');
     }
+  };
+
+  // Generate upcoming calendar events from tasks and projects
+  const generateUpcomingEvents = (tasksData, projectsData) => {
+    const events = [];
+    const today = new Date();
+    const nextWeek = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    // Add task due dates
+    if (tasksData && tasksData.upcomingDeadlines) {
+      tasksData.upcomingDeadlines.forEach(task => {
+        events.push({
+          id: `task-${task.id}`,
+          type: 'task',
+          title: task.title,
+          date: new Date(task.dueDate),
+          color: 'blue',
+          icon: ClipboardDocumentListIcon
+        });
+      });
+    }
+
+    // Add project milestones
+    if (projectsData && projectsData.upcomingDeadlines) {
+      projectsData.upcomingDeadlines.forEach(project => {
+        events.push({
+          id: `project-${project.id}`,
+          type: 'project',
+          title: `${project.title} deadline`,
+          date: new Date(project.targetCompletionDate),
+          color: 'purple',
+          icon: FolderIcon
+        });
+      });
+    }
+
+    // Sort by date and take first 5
+    return events
+      .sort((a, b) => a.date - b.date)
+      .slice(0, 5)
+      .map(event => ({
+        ...event,
+        dateString: event.date.toLocaleDateString('en-GB', {
+          weekday: 'short',
+          month: 'short',
+          day: 'numeric'
+        }),
+        isToday: event.date.toDateString() === today.toDateString(),
+        isOverdue: event.date < today
+      }));
   };
 
   useEffect(() => {
@@ -163,15 +217,16 @@ const Dashboard = () => {
         goalsData,
         readingData,
         skillsData,
-        financesData
+        financesData,
+        businessesData
       ] = await Promise.all([
         fetchWithFallback(
           'http://localhost:5001/api/tasks/analytics/overview',
-          { summary: { total: 0, completed: 0, active: 0, pending: 0 } }
+          { summary: { total: 0, completed: 0, active: 0, pending: 0 }, upcomingDeadlines: [] }
         ),
         fetchWithFallback(
           'http://localhost:5001/api/projects/stats/dashboard',
-          { overview: { totalProjects: 0, activeProjects: 0, completedProjects: 0 } }
+          { overview: { totalProjects: 0, activeProjects: 0, completedProjects: 0 }, upcomingDeadlines: [] }
         ),
         fetchWithFallback(
           'http://localhost:5001/api/goals/stats/dashboard',
@@ -188,6 +243,10 @@ const Dashboard = () => {
         fetchWithFallback(
           'http://localhost:5001/api/finances/budgets?limit=1',
           { summary: { income: 0, expenses: 0, savings: 0 } }
+        ),
+        fetchWithFallback(
+          'http://localhost:5001/api/businesses?limit=3&status=active',
+          []
         )
       ]);
 
@@ -234,65 +293,36 @@ const Dashboard = () => {
         }
       });
 
-      // Fetch recent activity data
-      const recentActivityData = await fetchWithFallback(
-        'http://localhost:5001/api/tasks/recent?limit=5',
-        []
-      );
-
-      // Process recent activity
-      if (recentActivityData && Array.isArray(recentActivityData)) {
-        setRecentActivity(
-          recentActivityData.map(item => ({
-            id: item._id || item.id,
-            type: 'task',
-            action: item.status === 'completed' ? 'completed' : 'updated',
-            item: item.title || item.name,
-            time: item.updatedAt ? new Date(item.updatedAt).toLocaleDateString() : 'Recently'
+      // Process businesses data
+      if (businessesData && Array.isArray(businessesData)) {
+        setBusinesses(
+          businessesData.map(business => ({
+            id: business._id || business.id,
+            name: business.name,
+            industry: business.industry,
+            status: business.status,
+            teamSize: business.teamMemberCount || business.teamMembers?.length || 1,
+            stage: business.stage,
+            updatedAt: business.updatedAt
           }))
         );
       } else {
-        // Fallback to static data
-        setRecentActivity([
+        // Fallback businesses data
+        setBusinesses([
           {
-            id: 'activity-1',
-            type: 'task',
-            action: 'completed',
-            item: 'Dashboard data loaded successfully',
-            time: 'Just now'
+            id: 'biz-1',
+            name: 'PersonalOS Ventures',
+            industry: 'technology',
+            status: 'active',
+            teamSize: 1,
+            stage: 'startup'
           }
         ]);
       }
 
-      // Fetch today's focus items
-      const todaysFocusData = await fetchWithFallback(
-        'http://localhost:5001/api/tasks?status=in_progress&limit=3',
-        []
-      );
-
-      // Process today's focus
-      if (todaysFocusData && Array.isArray(todaysFocusData)) {
-        setTodaysFocus(
-          todaysFocusData.map(item => ({
-            id: item._id || item.id,
-            type: 'task',
-            title: item.title || item.name,
-            status: item.status || 'in_progress',
-            color: item.priority === 'high' ? 'red' : item.priority === 'medium' ? 'blue' : 'green'
-          }))
-        );
-      } else {
-        // Fallback to static data
-        setTodaysFocus([
-          {
-            id: 'focus-1',
-            type: 'task',
-            title: 'Review dashboard API integration',
-            status: 'completed',
-            color: 'green'
-          }
-        ]);
-      }
+      // Generate upcoming calendar events
+      const events = generateUpcomingEvents(tasksData, projectsData);
+      setUpcomingEvents(events);
 
       // Show welcome message if coming from login
       if (welcomeMessage) {
@@ -507,103 +537,287 @@ const Dashboard = () => {
           </div>
         </div>
 
-        {/* Recent Activity & Today's Focus */}
+        {/* Calendar & Businesses */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Recent Activity */}
+          {/* Calendar Card */}
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Recent Activity</h3>
-              <button className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-                View All
+              <div className="flex items-center space-x-2">
+                <CalendarDaysIcon className="w-6 h-6 text-blue-600" />
+                <h3 className="text-lg font-semibold text-gray-900">Upcoming Events</h3>
+              </div>
+              <button 
+                onClick={() => navigate('/calendar')}
+                className="text-sm text-blue-600 hover:text-blue-700 font-medium flex items-center space-x-1"
+              >
+                <span>View Calendar</span>
+                <ArrowRightIcon className="w-4 h-4" />
               </button>
             </div>
             
-            <div className="space-y-4">
-              {recentActivity.length > 0 ? (
-                recentActivity.map((activity) => (
-                  <div key={activity.id} className="flex items-center space-x-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                      activity.type === 'task' ? 'bg-blue-100' :
-                      activity.type === 'goal' ? 'bg-green-100' :
-                      activity.type === 'reading' ? 'bg-orange-100' :
-                      activity.type === 'project' ? 'bg-purple-100' :
-                      'bg-gray-100'
-                    }`}>
-                      {activity.type === 'task' && <ClipboardDocumentListIcon className="w-4 h-4 text-blue-600" />}
-                      {activity.type === 'goal' && <SparklesIcon className="w-4 h-4 text-green-600" />}
-                      {activity.type === 'reading' && <BookOpenIcon className="w-4 h-4 text-orange-600" />}
-                      {activity.type === 'project' && <FolderIcon className="w-4 h-4 text-purple-600" />}
-                      {activity.type === 'skill' && <AcademicCapIcon className="w-4 h-4 text-purple-600" />}
+            <div className="space-y-3">
+              {upcomingEvents.length > 0 ? (
+                upcomingEvents.map((event) => {
+                  const IconComponent = event.icon;
+                  return (
+                    <div 
+                      key={event.id} 
+                      className={`flex items-center justify-between p-3 rounded-lg border-l-4 ${
+                        event.isOverdue ? 'bg-red-50 border-red-400' :
+                        event.isToday ? 'bg-blue-50 border-blue-400' :
+                        'bg-gray-50 border-gray-300'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className={`p-1.5 rounded-full ${
+                          event.color === 'blue' ? 'bg-blue-100' :
+                          event.color === 'purple' ? 'bg-purple-100' :
+                          event.color === 'green' ? 'bg-green-100' :
+                          'bg-gray-100'
+                        }`}>
+                          <IconComponent className={`w-4 h-4 ${
+                            event.color === 'blue' ? 'text-blue-600' :
+                            event.color === 'purple' ? 'text-purple-600' :
+                            event.color === 'green' ? 'text-green-600' :
+                            'text-gray-600'
+                          }`} />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-gray-900">{event.title}</p>
+                          <p className={`text-xs ${
+                            event.isOverdue ? 'text-red-600' :
+                            event.isToday ? 'text-blue-600' :
+                            'text-gray-500'
+                          }`}>
+                            {event.isOverdue ? 'Overdue' : event.isToday ? 'Today' : event.dateString}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        {event.isOverdue && <ClockIcon className="w-4 h-4 text-red-500" />}
+                        <button className={`${
+                          event.color === 'blue' ? 'text-blue-600 hover:text-blue-700' :
+                          event.color === 'purple' ? 'text-purple-600 hover:text-purple-700' :
+                          event.color === 'green' ? 'text-green-600 hover:text-green-700' :
+                          'text-gray-600 hover:text-gray-700'
+                        }`}>
+                          <EyeIcon className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-900">
-                        {activity.action.charAt(0).toUpperCase() + activity.action.slice(1)} {activity.item}
-                      </p>
-                      <p className="text-xs text-gray-500">{activity.time}</p>
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
-                <p className="text-gray-500 text-sm">No recent activity</p>
+                <div className="text-center py-8">
+                  <CalendarDaysIcon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-500 text-sm">No upcoming events</p>
+                  <p className="text-xs text-gray-400 mt-1">Events from tasks and projects will appear here</p>
+                </div>
               )}
             </div>
           </div>
 
-          {/* Today's Focus */}
+          {/* Businesses Card */}
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Today's Focus</h3>
-              <CalendarDaysIcon className="w-5 h-5 text-gray-400" />
+              <div className="flex items-center space-x-2">
+                <BuildingOffice2Icon className="w-6 h-6 text-emerald-600" />
+                <h3 className="text-lg font-semibold text-gray-900">Your Businesses</h3>
+              </div>
+              <button 
+                onClick={() => navigate('/businesses')}
+                className="text-sm text-emerald-600 hover:text-emerald-700 font-medium flex items-center space-x-1"
+              >
+                <span>View All</span>
+                <ArrowRightIcon className="w-4 h-4" />
+              </button>
             </div>
             
             <div className="space-y-3">
-              {todaysFocus.length > 0 ? (
-                todaysFocus.map((item) => (
-                  <div key={item.id} className={`flex items-center justify-between p-3 rounded-lg ${
-                    item.color === 'blue' ? 'bg-blue-50' :
-                    item.color === 'green' ? 'bg-green-50' :
-                    item.color === 'purple' ? 'bg-purple-50' :
-                    'bg-gray-50'
-                  }`}>
+              {businesses.length > 0 ? (
+                businesses.map((business) => (
+                  <div key={business.id} className="flex items-center justify-between p-3 rounded-lg bg-emerald-50 hover:bg-emerald-100 transition-colors cursor-pointer">
                     <div className="flex items-center space-x-3">
-                      {item.type === 'project' && <FolderIcon className="w-5 h-5 text-blue-600" />}
-                      {item.type === 'reading' && <BookOpenIcon className="w-5 h-5 text-green-600" />}
-                      {item.type === 'skill' && <AcademicCapIcon className="w-5 h-5 text-purple-600" />}
-                      <span className="text-sm font-medium text-gray-900">{item.title}</span>
+                      <div className="w-10 h-10 bg-emerald-500 rounded-lg flex items-center justify-center">
+                        <BuildingOffice2Icon className="w-5 h-5 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-gray-900">{business.name}</p>
+                        <div className="flex items-center space-x-2 text-xs text-gray-500">
+                          <span className="capitalize">{business.industry}</span>
+                          <span>•</span>
+                          <span className="capitalize">{business.stage}</span>
+                          <span>•</span>
+                          <span>{business.teamSize} member{business.teamSize !== 1 ? 's' : ''}</span>
+                        </div>
+                      </div>
                     </div>
-                    <button className={`${
-                      item.color === 'blue' ? 'text-blue-600 hover:text-blue-700' :
-                      item.color === 'green' ? 'text-green-600 hover:text-green-700' :
-                      item.color === 'purple' ? 'text-purple-600 hover:text-purple-700' :
-                      'text-gray-600 hover:text-gray-700'
-                    }`}>
-                      <EyeIcon className="w-4 h-4" />
-                    </button>
+                    <div className="flex items-center space-x-2">
+                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                        business.status === 'active' ? 'bg-green-100 text-green-700' :
+                        business.status === 'inactive' ? 'bg-gray-100 text-gray-700' :
+                        business.status === 'paused' ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {business.status}
+                      </span>
+                      <button className="text-emerald-600 hover:text-emerald-700">
+                        <ArrowRightIcon className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 ))
               ) : (
-                <p className="text-gray-500 text-sm">No focus items for today</p>
+                <div className="text-center py-8">
+                  <BuildingOffice2Icon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-500 text-sm mb-3">No businesses yet</p>
+                  <button 
+                    onClick={() => navigate('/businesses/new')}
+                    className="inline-flex items-center space-x-2 px-4 py-2 bg-emerald-500 text-white text-sm font-medium rounded-lg hover:bg-emerald-600 transition-colors"
+                  >
+                    <PlusIcon className="w-4 h-4" />
+                    <span>Create Business</span>
+                  </button>
+                </div>
               )}
             </div>
             
-            <button className="w-full mt-4 py-2 text-sm text-blue-600 hover:text-blue-700 font-medium border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors">
-              Add Focus Item
-            </button>
+            {businesses.length > 0 && (
+              <button 
+                onClick={() => navigate('/businesses/new')}
+                className="w-full mt-4 py-2 text-sm text-emerald-600 hover:text-emerald-700 font-medium border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors flex items-center justify-center space-x-2"
+              >
+                <PlusIcon className="w-4 h-4" />
+                <span>Add Business</span>
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Bottom CTA */}
-        <div className="mt-8 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-6 text-white text-center">
-          <h3 className="text-xl font-semibold mb-2">Ready to be more productive?</h3>
-          <p className="text-blue-100 mb-4">
-            Start organizing your digital life with PersonalOS's powerful tools.
-          </p>
-          <button 
-            onClick={() => navigate('/tasks')}
-            className="bg-white text-blue-600 px-6 py-2 rounded-lg font-medium hover:bg-blue-50 transition-colors"
-          >
-            Get Started
-          </button>
+        {/* Stats Card - Replace Bottom CTA */}
+        <div className="mt-8 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-8 text-white">
+          <div className="text-center mb-6">
+            <h3 className="text-2xl font-bold mb-2">Your Achievement Summary</h3>
+            <p className="text-blue-100">
+              Track your progress across all areas of your personal organization system
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {/* Projects Completed */}
+            <div className="text-center">
+              <div className="bg-white/20 rounded-lg p-6 mb-3">
+                <FolderIcon className="w-12 h-12 text-white mx-auto mb-3" />
+                <div className="text-3xl font-bold text-white mb-1">
+                  {stats.projects.completed}
+                </div>
+                <div className="text-blue-100 text-sm font-medium">
+                  Project{stats.projects.completed !== 1 ? 's' : ''} Completed
+                </div>
+              </div>
+              <div className="text-xs text-blue-200">
+                {stats.projects.active} active • {stats.projects.total} total
+              </div>
+            </div>
+
+            {/* Active Businesses */}
+            <div className="text-center">
+              <div className="bg-white/20 rounded-lg p-6 mb-3">
+                <BuildingOffice2Icon className="w-12 h-12 text-white mx-auto mb-3" />
+                <div className="text-3xl font-bold text-white mb-1">
+                  {businesses.filter(b => b.status === 'active').length}
+                </div>
+                <div className="text-blue-100 text-sm font-medium">
+                  Active Business{businesses.filter(b => b.status === 'active').length !== 1 ? 'es' : ''}
+                </div>
+              </div>
+              <div className="text-xs text-blue-200">
+                {businesses.length} total businesses
+              </div>
+            </div>
+
+            {/* Goals Achieved */}
+            <div className="text-center">
+              <div className="bg-white/20 rounded-lg p-6 mb-3">
+                <SparklesIcon className="w-12 h-12 text-white mx-auto mb-3" />
+                <div className="text-3xl font-bold text-white mb-1">
+                  {stats.goals.achieved}
+                </div>
+                <div className="text-blue-100 text-sm font-medium">
+                  Goal{stats.goals.achieved !== 1 ? 's' : ''} Achieved
+                </div>
+              </div>
+              <div className="text-xs text-blue-200">
+                {stats.goals.inProgress} in progress • {stats.goals.total} total
+              </div>
+            </div>
+          </div>
+
+          {/* Additional Stats Row */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6 pt-6 border-t border-white/20">
+            <div className="text-center">
+              <div className="text-xl font-bold text-white mb-1">
+                {stats.tasks.completed}
+              </div>
+              <div className="text-xs text-blue-200">
+                Tasks Done
+              </div>
+            </div>
+            
+            <div className="text-center">
+              <div className="text-xl font-bold text-white mb-1">
+                {stats.reading.read}
+              </div>
+              <div className="text-xs text-blue-200">
+                Books Read
+              </div>
+            </div>
+            
+            <div className="text-center">
+              <div className="text-xl font-bold text-white mb-1">
+                {stats.skills.mastered}
+              </div>
+              <div className="text-xs text-blue-200">
+                Skills Mastered
+              </div>
+            </div>
+            
+            <div className="text-center">
+              <div className="text-xl font-bold text-white mb-1">
+                {upcomingEvents.length}
+              </div>
+              <div className="text-xs text-blue-200">
+                Upcoming Events
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Actions */}
+          <div className="flex flex-wrap justify-center gap-3 mt-6">
+            <button 
+              onClick={() => navigate('/projects/new')}
+              className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg font-medium transition-colors border border-white/20 flex items-center space-x-2"
+            >
+              <PlusIcon className="w-4 h-4" />
+              <span>New Project</span>
+            </button>
+            
+            <button 
+              onClick={() => navigate('/goals/new')}
+              className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg font-medium transition-colors border border-white/20 flex items-center space-x-2"
+            >
+              <PlusIcon className="w-4 h-4" />
+              <span>New Goal</span>
+            </button>
+            
+            <button 
+              onClick={() => navigate('/businesses/new')}
+              className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg font-medium transition-colors border border-white/20 flex items-center space-x-2"
+            >
+              <PlusIcon className="w-4 h-4" />
+              <span>New Business</span>
+            </button>
+          </div>
         </div>
       </main>
     </div>
