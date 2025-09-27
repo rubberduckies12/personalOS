@@ -681,43 +681,50 @@ const SetProject = () => {
                         key={project._id}
                         draggable
                         onDragStart={(e) => handleDragStart(e, project)}
-                        className="bg-white rounded-lg p-4 shadow-sm border border-gray-200 hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing"
+                        className="bg-white rounded-lg p-4 shadow-sm border border-gray-200 hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing min-h-[200px]"
                       >
-                        <div className="flex items-start justify-between mb-3">
-                          <div className="flex-1">
-                            <h4 className="font-medium text-gray-900 mb-1">{project.title}</h4>
-                            <p className="text-sm text-gray-600 line-clamp-2">{project.description}</p>
-                          </div>
-                          <div className="flex space-x-1 ml-2">
+                        {/* Title */}
+                        <div className="mb-3">
+                          <h4 className="font-medium text-gray-900 mb-2">{project.title}</h4>
+                          
+                          {/* Action Buttons - New line between title and description */}
+                          <div className="flex items-center space-x-1 mb-3">
                             <button 
                               onClick={() => openViewModal(project)}
-                              className="p-1 text-gray-400 hover:text-blue-600"
+                              className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
+                              title="View project"
                             >
                               <EyeIcon className="w-4 h-4" />
                             </button>
                             <button 
                               onClick={() => openEditModal(project)}
-                              className="p-1 text-gray-400 hover:text-emerald-600"
+                              className="p-1.5 text-gray-400 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors"
+                              title="Edit project"
                             >
                               <PencilIcon className="w-4 h-4" />
                             </button>
                             <button 
                               onClick={() => handleDuplicateProject(project)}
-                              className="p-1 text-gray-400 hover:text-purple-600"
+                              className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded transition-colors"
                               title="Duplicate project"
                             >
                               <DocumentDuplicateIcon className="w-4 h-4" />
                             </button>
                             <button 
                               onClick={() => handleDeleteProject(project._id)}
-                              className="p-1 text-gray-400 hover:text-red-600"
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                              title="Delete project"
                             >
                               <TrashIcon className="w-4 h-4" />
                             </button>
                           </div>
+                          
+                          {/* Description */}
+                          <p className="text-sm text-gray-600 line-clamp-3 leading-relaxed">{project.description}</p>
                         </div>
 
-                        <div className="flex items-center justify-between text-sm mb-3">
+                        {/* Priority and Category badges */}
+                        <div className="flex flex-col space-y-2 mb-3">
                           <div className="flex items-center space-x-2">
                             <span className={`px-2 py-1 rounded-full text-xs font-medium ${getPriorityInfo(project.priority)}`}>
                               {project.priority}
@@ -730,34 +737,43 @@ const SetProject = () => {
                             <div className="flex items-center text-gray-500">
                               <CalendarIcon className="w-3 h-3 mr-1" />
                               <span className="text-xs">
-                                {new Date(project.targetCompletionDate).toLocaleDateString()}
+                                Due: {new Date(project.targetCompletionDate).toLocaleDateString('en-GB', {
+                                  day: '2-digit',
+                                  month: 'short',
+                                  year: '2-digit'
+                                })}
                               </span>
                             </div>
                           )}
                         </div>
 
+                        {/* Milestone Progress */}
                         {project.milestones && project.milestones.length > 0 && (
-                          <div className="mb-3">
-                            <div className="text-xs text-gray-500 mb-1">Milestone Progress</div>
+                          <div className="mb-4">
+                            <div className="text-xs text-gray-500 mb-2">Milestone Progress</div>
                             <div className="flex items-center space-x-2">
-                              <div className="flex-1 bg-gray-200 rounded-full h-1.5">
+                              <div className="flex-1 bg-gray-200 rounded-full h-2">
                                 <div 
-                                  className="bg-purple-500 h-1.5 rounded-full transition-all duration-300"
+                                  className="bg-purple-500 h-2 rounded-full transition-all duration-300"
                                   style={{ width: `${completion}%` }}
                                 ></div>
                               </div>
-                              <span className="text-xs text-gray-500">
+                              <span className="text-xs text-gray-500 font-medium min-w-[3rem]">
                                 {project.milestones.filter(m => m.completed).length}/{project.milestones.length}
                               </span>
+                            </div>
+                            <div className="text-xs text-purple-600 font-medium mt-1">
+                              {completion}% Complete
                             </div>
                           </div>
                         )}
 
-                        <div className="flex items-center justify-between">
+                        {/* Footer with Budget and Tags */}
+                        <div className="flex items-center justify-between pt-3 border-t border-gray-100">
                           {project.budget?.estimated && (
                             <div className="flex items-center text-gray-500">
-                              <BanknotesIcon className="w-3 h-3 mr-1" />
-                              <span className="text-xs">
+                              <BanknotesIcon className="w-4 h-4 mr-1" />
+                              <span className="text-xs font-medium">
                                 {project.budget.currency} {project.budget.estimated.toLocaleString()}
                               </span>
                             </div>
@@ -766,12 +782,12 @@ const SetProject = () => {
                           {project.tags && project.tags.length > 0 && (
                             <div className="flex flex-wrap gap-1">
                               {project.tags.slice(0, 2).map(tag => (
-                                <span key={tag} className="px-1.5 py-0.5 bg-blue-50 text-blue-600 text-xs rounded">
+                                <span key={tag} className="px-2 py-0.5 bg-blue-50 text-blue-600 text-xs rounded font-medium">
                                   #{tag}
                                 </span>
                               ))}
                               {project.tags.length > 2 && (
-                                <span className="text-xs text-gray-500">+{project.tags.length - 2}</span>
+                                <span className="text-xs text-gray-500 font-medium">+{project.tags.length - 2}</span>
                               )}
                             </div>
                           )}

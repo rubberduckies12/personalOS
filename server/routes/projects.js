@@ -3,84 +3,67 @@ const router = express.Router();
 const Project = require('../models/projectsModel');
 const Task = require('../models/tasksModel');
 const Goal = require('../models/goalsModel');
+const { authenticateUser } = require('../middleware/auth');
 
-// Middleware to authenticate user
-const authenticateUser = async (req, res, next) => {
-  try {
-    const userId = req.headers['user-id'] || req.body.userId;
-    if (!userId) {
-      return res.status(401).json({ error: 'User ID required' });
-    }
-    
-    req.userId = userId;
-    next();
-  } catch (error) {
-    res.status(500).json({ error: 'Authentication failed' });
-  }
-};
-
-// Helper function to calculate project progress based on linked tasks
-const calculateProjectProgress = async (projectId, userId) => {
-  try {
-    const tasks = await Task.find({ projectId, userId });
-    
-    if (tasks.length === 0) return 0;
-    
-    const completedTasks = tasks.filter(task => task.status === 'completed').length;
-    const inProgressTasks = tasks.filter(task => task.status === 'in_progress').length;
-    
-    // Give partial credit for in-progress tasks
-    const weightedProgress = completedTasks + (inProgressTasks * 0.5);
-    return Math.round((weightedProgress / tasks.length) * 100);
-  } catch (error) {
-    console.error('Error calculating project progress:', error);
-    return 0;
-  }
+// Helper function to calculate project progress based on milestones
+const calculateProjectProgress = (milestones) => {
+  if (!milestones || milestones.length === 0) return 0;
+  
+  const completedMilestones = milestones.filter(milestone => milestone.completed).length;
+  return Math.round((completedMilestones / milestones.length) * 100);
 };
 
 // Helper function to determine project status based on progress and dates
 const determineProjectStatus = (project, progress) => {
+  if (project.status === 'completed' || project.status === 'cancelled') {
+    return project.status;
+  }
+  
   if (progress >= 100) return 'completed';
   
-  if (project.endDate) {
+  if (project.targetCompletionDate) {
     const now = new Date();
-    const endDate = new Date(project.endDate);
+    const endDate = new Date(project.targetCompletionDate);
     const daysUntilDeadline = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
     
-    if (daysUntilDeadline < 0) return 'overdue';
+    if (daysUntilDeadline < 0 && progress < 100) return 'overdue';
     if (daysUntilDeadline <= 7 && progress < 75) return 'at_risk';
   }
   
   if (progress > 0) return 'active';
   if (project.startDate && new Date(project.startDate) <= new Date()) return 'active';
-  return 'planning';
+  return project.status || 'planning';
 };
 
 // Helper function to get project statistics
-const getProjectStats = async (userId, projectId = null) => {
+const getProjectStats = async (userId) => {
   try {
-    const filter = { userId };
-    if (projectId) filter._id = projectId;
+    const projects = await Project.find({ userId });
     
-    const projects = await Project.find(filter);
-    const tasks = await Task.find({ 
-      userId, 
-      ...(projectId && { projectId })
-    });
-    
-    return {
+    const stats = {
       totalProjects: projects.length,
-      activeProjects: projects.filter(p => ['planning', 'active'].includes(p.status)).length,
+      planningProjects: projects.filter(p => p.status === 'planning').length,
+      activeProjects: projects.filter(p => p.status === 'active').length,
+      onHoldProjects: projects.filter(p => p.status === 'on_hold').length,
       completedProjects: projects.filter(p => p.status === 'completed').length,
+      cancelledProjects: projects.filter(p => p.status === 'cancelled').length,
       overdueProjects: projects.filter(p => {
-        if (!p.endDate) return false;
-        return new Date(p.endDate) < new Date() && p.status !== 'completed';
-      }).length,
-      totalTasks: tasks.length,
-      completedTasks: tasks.filter(t => t.status === 'completed').length,
-      avgCompletion: projects.length > 0 ? 
-        Math.round(projects.reduce((sum, p) => sum + (p.completionPercentage || 0), 0) / projects.length) : 0
+        if (!p.targetCompletionDate) return false;
+        return new Date(p.targetCompletionDate) < new Date() && p.status !== 'completed';
+      }).length
     };
+
+    // Calculate average completion
+    if (projects.length > 0) {
+      const totalProgress = projects.reduce((sum, project) => {
+        return sum + calculateProjectProgress(project.milestones);
+      }, 0);
+      stats.avgCompletion = Math.round(totalProgress / projects.length);
+    } else {
+      stats.avgCompletion = 0;
+    }
+
+    return stats;
   } catch (error) {
     console.error('Error getting project stats:', error);
     return {};
@@ -98,17 +81,18 @@ router.get('/', authenticateUser, async (req, res) => {
       sortBy = 'updatedAt',
       sortOrder = 'desc',
       page = 1,
-      limit = 50,
-      includeArchived = false
+      limit = 50
     } = req.query;
+
+    console.log('📊 Fetching projects for user:', req.userId);
 
     // Build filter object
     const filter = { userId: req.userId };
     
-    if (!includeArchived) filter.status = { $ne: 'archived' };
-    if (status) filter.status = status;
-    if (category) filter.category = category;
-    if (priority) filter.priority = priority;
+    if (status && status !== 'all') filter.status = status;
+    if (category && category !== 'all') filter.category = category;
+    if (priority && priority !== 'all') filter.priority = priority;
+    
     if (search) {
       filter.$or = [
         { title: { $regex: search, $options: 'i' } },
@@ -127,43 +111,38 @@ router.get('/', authenticateUser, async (req, res) => {
       .limit(parseInt(limit))
       .lean();
 
+    console.log(`📊 Found ${projects.length} projects`);
+
     // Calculate progress and enhance each project
-    const enhancedProjects = await Promise.all(
-      projects.map(async (project) => {
-        const progress = await calculateProjectProgress(project._id, req.userId);
-        const calculatedStatus = determineProjectStatus(project, progress);
-        
-        // Get task count for this project
-        const taskCount = await Task.countDocuments({ 
-          projectId: project._id, 
-          userId: req.userId 
-        });
-        
-        // Calculate time metrics
-        const now = new Date();
-        let timeMetrics = {};
-        
-        if (project.startDate) {
-          const startDate = new Date(project.startDate);
-          timeMetrics.daysActive = startDate <= now ? 
-            Math.ceil((now - startDate) / (1000 * 60 * 60 * 24)) : 0;
-        }
-        
-        if (project.endDate) {
-          const endDate = new Date(project.endDate);
-          timeMetrics.daysUntilDeadline = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
-        }
-        
-        return {
-          ...project,
-          progress,
-          calculatedStatus,
-          taskCount,
-          timeMetrics,
-          isOverdue: project.endDate && new Date(project.endDate) < now && progress < 100
-        };
-      })
-    );
+    const enhancedProjects = projects.map(project => {
+      const progress = calculateProjectProgress(project.milestones);
+      const calculatedStatus = determineProjectStatus(project, progress);
+      
+      // Calculate time metrics
+      const now = new Date();
+      let timeMetrics = {};
+      
+      if (project.startDate) {
+        const startDate = new Date(project.startDate);
+        timeMetrics.daysActive = startDate <= now ? 
+          Math.ceil((now - startDate) / (1000 * 60 * 60 * 24)) : 0;
+      }
+      
+      if (project.targetCompletionDate) {
+        const endDate = new Date(project.targetCompletionDate);
+        timeMetrics.daysUntilDeadline = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
+      }
+      
+      return {
+        ...project,
+        progress,
+        calculatedStatus,
+        timeMetrics,
+        isOverdue: project.targetCompletionDate && 
+                   new Date(project.targetCompletionDate) < now && 
+                   progress < 100
+      };
+    });
 
     // Get total count for pagination
     const totalCount = await Project.countDocuments(filter);
@@ -185,7 +164,7 @@ router.get('/', authenticateUser, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error fetching projects:', error);
+    console.error('❌ Error fetching projects:', error);
     res.status(500).json({ error: 'Failed to fetch projects' });
   }
 });
@@ -195,19 +174,15 @@ router.get('/:id', authenticateUser, async (req, res) => {
   try {
     const { id } = req.params;
     
+    console.log('📊 Fetching project details for:', id);
+    
     const project = await Project.findOne({ _id: id, userId: req.userId }).lean();
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    // Get linked tasks and goals
-    const [tasks, linkedGoal] = await Promise.all([
-      Task.find({ projectId: id, userId: req.userId }).sort({ createdAt: -1 }),
-      project.goalId ? Goal.findById(project.goalId) : null
-    ]);
-
     // Calculate progress
-    const progress = await calculateProjectProgress(id, req.userId);
+    const progress = calculateProjectProgress(project.milestones);
     const calculatedStatus = determineProjectStatus(project, progress);
 
     // Calculate detailed metrics
@@ -218,13 +193,13 @@ router.get('/:id', authenticateUser, async (req, res) => {
     let timeMetrics = {
       daysActive,
       daysUntilDeadline: null,
-      progressRate: progress / daysActive, // Progress per day
+      progressRate: daysActive > 0 ? progress / daysActive : 0,
       estimatedCompletion: null,
       isOnTrack: true
     };
 
-    if (project.endDate) {
-      const endDate = new Date(project.endDate);
+    if (project.targetCompletionDate) {
+      const endDate = new Date(project.targetCompletionDate);
       timeMetrics.daysUntilDeadline = Math.ceil((endDate - now) / (1000 * 60 * 60 * 24));
       
       if (timeMetrics.progressRate > 0) {
@@ -235,45 +210,31 @@ router.get('/:id', authenticateUser, async (req, res) => {
       }
     }
 
-    // Task breakdown
-    const taskStats = {
-      total: tasks.length,
-      completed: tasks.filter(t => t.status === 'completed').length,
-      inProgress: tasks.filter(t => t.status === 'in_progress').length,
-      notStarted: tasks.filter(t => t.status === 'not_started').length,
-      overdue: tasks.filter(t => t.deadline && new Date(t.deadline) < now && t.status !== 'completed').length,
-      byPriority: {
-        high: tasks.filter(t => t.priority === 'high').length,
-        medium: tasks.filter(t => t.priority === 'medium').length,
-        low: tasks.filter(t => t.priority === 'low').length
-      }
+    // Milestone breakdown
+    const milestoneStats = {
+      total: project.milestones?.length || 0,
+      completed: project.milestones?.filter(m => m.completed).length || 0,
+      pending: project.milestones?.filter(m => !m.completed).length || 0,
+      overdue: project.milestones?.filter(m => {
+        return m.dueDate && new Date(m.dueDate) < now && !m.completed;
+      }).length || 0
     };
+
+    console.log('✅ Project details fetched successfully');
 
     res.json({
       ...project,
       progress,
       calculatedStatus,
-      tasks: tasks.map(task => ({
-        id: task._id,
-        title: task.title,
-        status: task.status,
-        priority: task.priority,
-        deadline: task.deadline,
-        isOverdue: task.deadline && new Date(task.deadline) < now && task.status !== 'completed'
-      })),
-      linkedGoal: linkedGoal ? {
-        id: linkedGoal._id,
-        title: linkedGoal.title,
-        status: linkedGoal.status,
-        category: linkedGoal.category
-      } : null,
       timeMetrics,
-      taskStats,
-      isOverdue: project.endDate && new Date(project.endDate) < now && progress < 100
+      milestoneStats,
+      isOverdue: project.targetCompletionDate && 
+                 new Date(project.targetCompletionDate) < now && 
+                 progress < 100
     });
 
   } catch (error) {
-    console.error('Error fetching project:', error);
+    console.error('❌ Error fetching project:', error);
     res.status(500).json({ error: 'Failed to fetch project' });
   }
 });
@@ -284,63 +245,80 @@ router.post('/', authenticateUser, async (req, res) => {
     const {
       title,
       description,
-      category,
+      category = 'personal',
       priority = 'medium',
+      status = 'planning',
       startDate,
-      endDate,
-      goalId,
-      tags = [],
+      targetCompletionDate,
+      estimatedTotalHours,
       budget,
-      status = 'planning'
+      tags = [],
+      milestones = []
     } = req.body;
+
+    console.log('📊 Creating new project for user:', req.userId);
 
     // Validation
     if (!title || title.trim().length === 0) {
       return res.status(400).json({ error: 'Project title is required' });
     }
 
-    if (startDate && endDate && new Date(startDate) >= new Date(endDate)) {
-      return res.status(400).json({ error: 'End date must be after start date' });
+    if (!description || description.trim().length === 0) {
+      return res.status(400).json({ error: 'Project description is required' });
     }
 
-    // Verify goal exists if goalId is provided
-    if (goalId) {
-      const goal = await Goal.findOne({ _id: goalId, userId: req.userId });
-      if (!goal) {
-        return res.status(400).json({ error: 'Invalid goal ID' });
-      }
+    if (startDate && targetCompletionDate && new Date(startDate) >= new Date(targetCompletionDate)) {
+      return res.status(400).json({ error: 'Target completion date must be after start date' });
     }
+
+    // Process milestones
+    const processedMilestones = milestones.map((milestone, index) => ({
+      title: milestone.title,
+      description: milestone.description || '',
+      completed: false,
+      order: milestone.order || index + 1,
+      estimatedHours: milestone.estimatedHours || 0,
+      actualHours: 0,
+      dueDate: milestone.dueDate || null,
+      dependencies: milestone.dependencies || [],
+      notes: []
+    }));
 
     // Create project
     const project = new Project({
       userId: req.userId,
       title: title.trim(),
-      description: description?.trim() || '',
-      category: category?.trim() || 'general',
+      description: description.trim(),
+      category,
       priority,
-      startDate: startDate ? new Date(startDate) : null,
-      endDate: endDate ? new Date(endDate) : null,
-      goalId: goalId || null,
-      tags: tags.filter(tag => tag.trim().length > 0),
-      budget: budget || null,
       status,
-      completionPercentage: 0,
+      startDate: startDate ? new Date(startDate) : null,
+      targetCompletionDate: targetCompletionDate ? new Date(targetCompletionDate) : null,
+      estimatedTotalHours: estimatedTotalHours || null,
+      actualTotalHours: 0,
+      budget: budget ? {
+        estimated: budget.estimated || 0,
+        actual: 0,
+        currency: budget.currency || 'GBP'
+      } : null,
+      tags: tags.filter(tag => tag && tag.trim().length > 0).map(tag => tag.trim().toLowerCase()),
+      milestones: processedMilestones,
       createdAt: new Date(),
       updatedAt: new Date()
     });
 
     const savedProject = await project.save();
 
+    console.log('✅ Project created successfully:', savedProject._id);
+
     res.status(201).json({
       ...savedProject.toObject(),
-      progress: 0,
-      calculatedStatus: status,
-      taskCount: 0,
-      tasks: []
+      progress: calculateProjectProgress(savedProject.milestones),
+      calculatedStatus: status
     });
 
   } catch (error) {
-    console.error('Error creating project:', error);
+    console.error('❌ Error creating project:', error);
     if (error.name === 'ValidationError') {
       return res.status(400).json({ error: error.message });
     }
@@ -353,21 +331,49 @@ router.put('/:id', authenticateUser, async (req, res) => {
   try {
     const { id } = req.params;
     const updateData = { ...req.body };
-    delete updateData.userId; // Prevent userId modification
+    
+    console.log('📊 Updating project:', id);
+    
+    // Remove fields that shouldn't be directly updated
+    delete updateData.userId;
+    delete updateData.createdAt;
     updateData.updatedAt = new Date();
 
     // Validation
-    if (updateData.startDate && updateData.endDate && 
-        new Date(updateData.startDate) >= new Date(updateData.endDate)) {
-      return res.status(400).json({ error: 'End date must be after start date' });
+    if (updateData.title && updateData.title.trim().length === 0) {
+      return res.status(400).json({ error: 'Project title cannot be empty' });
     }
 
-    // Verify goal exists if goalId is being updated
-    if (updateData.goalId) {
-      const goal = await Goal.findOne({ _id: updateData.goalId, userId: req.userId });
-      if (!goal) {
-        return res.status(400).json({ error: 'Invalid goal ID' });
-      }
+    if (updateData.description && updateData.description.trim().length === 0) {
+      return res.status(400).json({ error: 'Project description cannot be empty' });
+    }
+
+    if (updateData.startDate && updateData.targetCompletionDate && 
+        new Date(updateData.startDate) >= new Date(updateData.targetCompletionDate)) {
+      return res.status(400).json({ error: 'Target completion date must be after start date' });
+    }
+
+    // Process tags if provided
+    if (updateData.tags) {
+      updateData.tags = updateData.tags
+        .filter(tag => tag && tag.trim().length > 0)
+        .map(tag => tag.trim().toLowerCase());
+    }
+
+    // Process milestones if provided
+    if (updateData.milestones) {
+      updateData.milestones = updateData.milestones.map((milestone, index) => ({
+        title: milestone.title,
+        description: milestone.description || '',
+        completed: milestone.completed || false,
+        order: milestone.order || index + 1,
+        estimatedHours: milestone.estimatedHours || 0,
+        actualHours: milestone.actualHours || 0,
+        dueDate: milestone.dueDate || null,
+        dependencies: milestone.dependencies || [],
+        notes: milestone.notes || [],
+        completedAt: milestone.completedAt || null
+      }));
     }
 
     const project = await Project.findOneAndUpdate(
@@ -380,13 +386,11 @@ router.put('/:id', authenticateUser, async (req, res) => {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    // Calculate updated progress
-    const progress = await calculateProjectProgress(id, req.userId);
-    const calculatedStatus = determineProjectStatus(project, progress);
+    console.log('✅ Project updated successfully');
 
-    // Update completion percentage
-    project.completionPercentage = progress;
-    await project.save();
+    // Calculate updated progress
+    const progress = calculateProjectProgress(project.milestones);
+    const calculatedStatus = determineProjectStatus(project, progress);
 
     res.json({
       ...project.toObject(),
@@ -395,7 +399,7 @@ router.put('/:id', authenticateUser, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error updating project:', error);
+    console.error('❌ Error updating project:', error);
     if (error.name === 'ValidationError') {
       return res.status(400).json({ error: error.message });
     }
@@ -407,9 +411,11 @@ router.put('/:id', authenticateUser, async (req, res) => {
 router.put('/:id/status', authenticateUser, async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, completionNotes } = req.body;
+    const { status } = req.body;
 
-    const validStatuses = ['planning', 'active', 'on_hold', 'completed', 'cancelled', 'archived'];
+    console.log('📊 Updating project status:', id, 'to', status);
+
+    const validStatuses = ['planning', 'active', 'on_hold', 'completed', 'cancelled'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ 
         error: 'Invalid status', 
@@ -417,85 +423,38 @@ router.put('/:id/status', authenticateUser, async (req, res) => {
       });
     }
 
-    const project = await Project.findOne({ _id: id, userId: req.userId });
+    const updateData = {
+      status,
+      updatedAt: new Date()
+    };
+
+    if (status === 'completed') {
+      updateData.actualCompletionDate = new Date();
+    }
+
+    const project = await Project.findOneAndUpdate(
+      { _id: id, userId: req.userId },
+      updateData,
+      { new: true }
+    );
+
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    project.status = status;
-    project.updatedAt = new Date();
+    console.log('✅ Project status updated successfully');
 
-    if (status === 'completed') {
-      project.completedAt = new Date();
-      project.completionPercentage = 100;
-      if (completionNotes) {
-        project.completionNotes = completionNotes;
-      }
-    } else if (status === 'cancelled') {
-      project.cancelledAt = new Date();
-      if (completionNotes) {
-        project.cancellationReason = completionNotes;
-      }
-    }
-
-    await project.save();
+    const progress = calculateProjectProgress(project.milestones);
 
     res.json({
       ...project.toObject(),
+      progress,
       message: `Project status updated to ${status}`
     });
 
   } catch (error) {
-    console.error('Error updating project status:', error);
+    console.error('❌ Error updating project status:', error);
     res.status(500).json({ error: 'Failed to update project status' });
-  }
-});
-
-// POST /api/projects/:id/tasks - Create task for project
-router.post('/:id/tasks', authenticateUser, async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { title, description, priority = 'medium', deadline } = req.body;
-
-    if (!title || title.trim().length === 0) {
-      return res.status(400).json({ error: 'Task title is required' });
-    }
-
-    // Verify project exists
-    const project = await Project.findOne({ _id: id, userId: req.userId });
-    if (!project) {
-      return res.status(404).json({ error: 'Project not found' });
-    }
-
-    // Create task linked to project
-    const task = new Task({
-      userId: req.userId,
-      projectId: id,
-      title: title.trim(),
-      description: description?.trim() || '',
-      priority,
-      deadline: deadline ? new Date(deadline) : null,
-      status: 'not_started',
-      createdAt: new Date(),
-      updatedAt: new Date()
-    });
-
-    const savedTask = await task.save();
-
-    // Update project progress
-    const progress = await calculateProjectProgress(id, req.userId);
-    project.completionPercentage = progress;
-    project.updatedAt = new Date();
-    await project.save();
-
-    res.status(201).json({
-      task: savedTask.toObject(),
-      projectProgress: progress
-    });
-
-  } catch (error) {
-    console.error('Error creating project task:', error);
-    res.status(500).json({ error: 'Failed to create task for project' });
   }
 });
 
@@ -503,171 +462,24 @@ router.post('/:id/tasks', authenticateUser, async (req, res) => {
 router.delete('/:id', authenticateUser, async (req, res) => {
   try {
     const { id } = req.params;
-    const { deleteAssociatedTasks = false } = req.query;
 
-    const project = await Project.findOne({ _id: id, userId: req.userId });
+    console.log('📊 Deleting project:', id);
+
+    const project = await Project.findOneAndDelete({ _id: id, userId: req.userId });
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    if (deleteAssociatedTasks === 'true') {
-      // Delete all associated tasks
-      await Task.deleteMany({ projectId: id, userId: req.userId });
-    } else {
-      // Unlink tasks from project
-      await Task.updateMany(
-        { projectId: id, userId: req.userId },
-        { $unset: { projectId: 1 } }
-      );
-    }
-
-    await Project.findByIdAndDelete(id);
+    console.log('✅ Project deleted successfully');
 
     res.json({ 
       message: 'Project deleted successfully',
-      deletedAssociatedTasks: deleteAssociatedTasks === 'true'
+      projectTitle: project.title
     });
 
   } catch (error) {
-    console.error('Error deleting project:', error);
+    console.error('❌ Error deleting project:', error);
     res.status(500).json({ error: 'Failed to delete project' });
-  }
-});
-
-// GET /api/projects/stats/dashboard - Get dashboard statistics
-router.get('/stats/dashboard', authenticateUser, async (req, res) => {
-  try {
-    const stats = await getProjectStats(req.userId);
-    
-    // Get recent projects
-    const recentProjects = await Project.find({ userId: req.userId })
-      .sort({ updatedAt: -1 })
-      .limit(5)
-      .lean();
-
-    // Get upcoming deadlines
-    const now = new Date();
-    const upcomingDeadlines = await Project.find({
-      userId: req.userId,
-      endDate: { $gte: now },
-      status: { $in: ['planning', 'active'] }
-    })
-    .sort({ endDate: 1 })
-    .limit(5)
-    .lean();
-
-    // Get overdue projects
-    const overdueProjects = await Project.find({
-      userId: req.userId,
-      endDate: { $lt: now },
-      status: { $ne: 'completed' }
-    })
-    .sort({ endDate: 1 })
-    .lean();
-
-    // Category breakdown
-    const categoryStats = await Project.aggregate([
-      { $match: { userId: req.userId } },
-      { $group: { _id: '$category', count: { $sum: 1 } } },
-      { $sort: { count: -1 } }
-    ]);
-
-    res.json({
-      overview: stats,
-      recentProjects: recentProjects.map(p => ({
-        id: p._id,
-        title: p.title,
-        status: p.status,
-        updatedAt: p.updatedAt,
-        completionPercentage: p.completionPercentage || 0
-      })),
-      upcomingDeadlines: upcomingDeadlines.map(p => ({
-        id: p._id,
-        title: p.title,
-        endDate: p.endDate,
-        daysUntilDeadline: Math.ceil((new Date(p.endDate) - now) / (1000 * 60 * 60 * 24))
-      })),
-      overdueProjects: overdueProjects.map(p => ({
-        id: p._id,
-        title: p.title,
-        endDate: p.endDate,
-        daysOverdue: Math.ceil((now - new Date(p.endDate)) / (1000 * 60 * 60 * 24))
-      })),
-      categories: categoryStats.map(cat => ({
-        name: cat._id,
-        count: cat.count
-      }))
-    });
-
-  } catch (error) {
-    console.error('Error fetching project dashboard stats:', error);
-    res.status(500).json({ error: 'Failed to fetch project statistics' });
-  }
-});
-
-// GET /api/projects/categories - Get all project categories
-router.get('/categories', authenticateUser, async (req, res) => {
-  try {
-    const categories = await Project.distinct('category', { userId: req.userId });
-    
-    const categoriesWithCounts = await Promise.all(
-      categories.map(async (category) => {
-        const count = await Project.countDocuments({ userId: req.userId, category });
-        return { name: category, count };
-      })
-    );
-
-    res.json(categoriesWithCounts.sort((a, b) => b.count - a.count));
-
-  } catch (error) {
-    console.error('Error fetching project categories:', error);
-    res.status(500).json({ error: 'Failed to fetch project categories' });
-  }
-});
-
-// GET /api/projects/search - Search projects
-router.get('/search', authenticateUser, async (req, res) => {
-  try {
-    const { q, category, status, limit = 10 } = req.query;
-
-    if (!q || q.trim().length === 0) {
-      return res.status(400).json({ error: 'Search query is required' });
-    }
-
-    const filter = {
-      userId: req.userId,
-      $or: [
-        { title: { $regex: q, $options: 'i' } },
-        { description: { $regex: q, $options: 'i' } },
-        { tags: { $in: [new RegExp(q, 'i')] } }
-      ]
-    };
-
-    if (category) filter.category = category;
-    if (status) filter.status = status;
-
-    const projects = await Project.find(filter)
-      .limit(parseInt(limit))
-      .sort({ updatedAt: -1 })
-      .lean();
-
-    // Add progress to each project
-    const projectsWithProgress = await Promise.all(
-      projects.map(async (project) => {
-        const progress = await calculateProjectProgress(project._id, req.userId);
-        return { ...project, progress };
-      })
-    );
-
-    res.json({
-      query: q,
-      results: projectsWithProgress,
-      total: projectsWithProgress.length
-    });
-
-  } catch (error) {
-    console.error('Error searching projects:', error);
-    res.status(500).json({ error: 'Failed to search projects' });
   }
 });
 
@@ -675,7 +487,9 @@ router.get('/search', authenticateUser, async (req, res) => {
 router.post('/:id/duplicate', authenticateUser, async (req, res) => {
   try {
     const { id } = req.params;
-    const { includeActiveTasks = false, newTitle } = req.body;
+    const { newTitle, includeActiveTasks = false } = req.body;
+
+    console.log('📊 Duplicating project:', id);
 
     const originalProject = await Project.findOne({ _id: id, userId: req.userId });
     if (!originalProject) {
@@ -689,51 +503,101 @@ router.post('/:id/duplicate', authenticateUser, async (req, res) => {
       description: originalProject.description,
       category: originalProject.category,
       priority: originalProject.priority,
-      goalId: originalProject.goalId,
-      tags: [...originalProject.tags],
-      budget: originalProject.budget,
+      estimatedTotalHours: originalProject.estimatedTotalHours,
+      budget: originalProject.budget ? {
+        estimated: originalProject.budget.estimated,
+        actual: 0,
+        currency: originalProject.budget.currency
+      } : null,
+      tags: [...(originalProject.tags || [])],
+      milestones: originalProject.milestones.map(milestone => ({
+        ...milestone,
+        completed: false,
+        actualHours: 0,
+        completedAt: null,
+        notes: []
+      })),
       status: 'planning',
-      completionPercentage: 0,
+      actualTotalHours: 0,
       createdAt: new Date(),
       updatedAt: new Date()
     });
 
     const savedProject = await duplicatedProject.save();
 
-    // Duplicate tasks if requested
-    if (includeActiveTasks) {
-      const originalTasks = await Task.find({ 
-        projectId: id, 
-        userId: req.userId,
-        status: { $ne: 'completed' } // Only duplicate non-completed tasks
-      });
-
-      const duplicatedTasks = originalTasks.map(task => ({
-        userId: req.userId,
-        projectId: savedProject._id,
-        title: task.title,
-        description: task.description,
-        priority: task.priority,
-        status: 'not_started',
-        createdAt: new Date(),
-        updatedAt: new Date()
-      }));
-
-      if (duplicatedTasks.length > 0) {
-        await Task.insertMany(duplicatedTasks);
-      }
-    }
+    console.log('✅ Project duplicated successfully');
 
     res.status(201).json({
       ...savedProject.toObject(),
-      message: 'Project duplicated successfully',
-      duplicatedTasksCount: includeActiveTasks ? 
-        await Task.countDocuments({ projectId: savedProject._id }) : 0
+      progress: 0,
+      message: 'Project duplicated successfully'
     });
 
   } catch (error) {
-    console.error('Error duplicating project:', error);
+    console.error('❌ Error duplicating project:', error);
     res.status(500).json({ error: 'Failed to duplicate project' });
+  }
+});
+
+// GET /api/projects/stats/dashboard - Get dashboard statistics
+router.get('/stats/dashboard', authenticateUser, async (req, res) => {
+  try {
+    console.log('📊 Fetching dashboard stats for user:', req.userId);
+
+    const stats = await getProjectStats(req.userId);
+    
+    // Get recent projects
+    const recentProjects = await Project.find({ userId: req.userId })
+      .sort({ updatedAt: -1 })
+      .limit(5)
+      .lean();
+
+    // Get upcoming deadlines
+    const now = new Date();
+    const upcomingDeadlines = await Project.find({
+      userId: req.userId,
+      targetCompletionDate: { $gte: now },
+      status: { $in: ['planning', 'active'] }
+    })
+    .sort({ targetCompletionDate: 1 })
+    .limit(5)
+    .lean();
+
+    // Get overdue projects
+    const overdueProjects = await Project.find({
+      userId: req.userId,
+      targetCompletionDate: { $lt: now },
+      status: { $nin: ['completed', 'cancelled'] }
+    })
+    .sort({ targetCompletionDate: 1 })
+    .lean();
+
+    res.json({
+      overview: stats,
+      recentProjects: recentProjects.map(p => ({
+        id: p._id,
+        title: p.title,
+        status: p.status,
+        updatedAt: p.updatedAt,
+        progress: calculateProjectProgress(p.milestones)
+      })),
+      upcomingDeadlines: upcomingDeadlines.map(p => ({
+        id: p._id,
+        title: p.title,
+        targetCompletionDate: p.targetCompletionDate,
+        daysUntilDeadline: Math.ceil((new Date(p.targetCompletionDate) - now) / (1000 * 60 * 60 * 24))
+      })),
+      overdueProjects: overdueProjects.map(p => ({
+        id: p._id,
+        title: p.title,
+        targetCompletionDate: p.targetCompletionDate,
+        daysOverdue: Math.ceil((now - new Date(p.targetCompletionDate)) / (1000 * 60 * 60 * 24))
+      }))
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching project dashboard stats:', error);
+    res.status(500).json({ error: 'Failed to fetch project statistics' });
   }
 });
 
