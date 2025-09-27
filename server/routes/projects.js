@@ -35,10 +35,13 @@ const determineProjectStatus = (project, progress) => {
   return project.status || 'planning';
 };
 
-// Helper function to get project statistics
+// Helper function to get project statistics (Enhanced for team projects)
 const getProjectStats = async (userId) => {
   try {
-    const projects = await Project.find({ userId });
+    // Get both owned and team projects
+    const projects = await Project.findAccessibleToUser ? 
+      await Project.findAccessibleToUser(userId) :
+      await Project.find({ userId });
     
     const stats = {
       totalProjects: projects.length,
@@ -63,10 +66,34 @@ const getProjectStats = async (userId) => {
       stats.avgCompletion = 0;
     }
 
+    // Calculate category distribution
+    const categoryCount = {};
+    projects.forEach(project => {
+      const category = project.category || 'other';
+      categoryCount[category] = (categoryCount[category] || 0) + 1;
+    });
+
+    // Convert to array and sort by count
+    const categories = Object.entries(categoryCount)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+
+    stats.categories = categories;
+
     return stats;
   } catch (error) {
     console.error('Error getting project stats:', error);
-    return {};
+    return {
+      totalProjects: 0,
+      planningProjects: 0,
+      activeProjects: 0,
+      onHoldProjects: 0,
+      completedProjects: 0,
+      cancelledProjects: 0,
+      overdueProjects: 0,
+      avgCompletion: 0,
+      categories: []
+    };
   }
 };
 
@@ -539,25 +566,48 @@ router.post('/:id/duplicate', authenticateUser, async (req, res) => {
   }
 });
 
-// GET /api/projects/stats/dashboard - Get dashboard statistics
+// GET /api/projects/stats/dashboard - Get dashboard statistics (Enhanced for team projects)
 router.get('/stats/dashboard', authenticateUser, async (req, res) => {
   try {
     console.log('📊 Fetching dashboard stats for user:', req.userId);
 
     const stats = await getProjectStats(req.userId);
     
-    // Get recent projects
-    const recentProjects = await Project.find({ userId: req.userId })
-      .sort({ updatedAt: -1 })
-      .limit(5)
-      .lean();
+    // Get recent projects (including team projects) with safe method call
+    let recentProjects = [];
+    try {
+      if (Project.findAccessibleToUser) {
+        recentProjects = await Project.findAccessibleToUser(req.userId)
+          .sort({ updatedAt: -1 })
+          .limit(5)
+          .populate('userId', 'firstName lastName')
+          .lean();
+      } else {
+        // Fallback to original query
+        recentProjects = await Project.find({ userId: req.userId })
+          .sort({ updatedAt: -1 })
+          .limit(5)
+          .populate('userId', 'firstName lastName')
+          .lean();
+      }
+    } catch (error) {
+      console.warn('Error fetching recent projects:', error.message);
+      recentProjects = [];
+    }
 
     // Get upcoming deadlines
     const now = new Date();
     const upcomingDeadlines = await Project.find({
-      userId: req.userId,
+      $or: [
+        { userId: req.userId },
+        { 
+          'teamMembers.userId': req.userId,
+          'teamMembers.status': 'active'
+        }
+      ],
       targetCompletionDate: { $gte: now },
-      status: { $in: ['planning', 'active'] }
+      status: { $in: ['planning', 'active'] },
+      archived: { $ne: true }
     })
     .sort({ targetCompletionDate: 1 })
     .limit(5)
@@ -565,33 +615,55 @@ router.get('/stats/dashboard', authenticateUser, async (req, res) => {
 
     // Get overdue projects
     const overdueProjects = await Project.find({
-      userId: req.userId,
+      $or: [
+        { userId: req.userId },
+        { 
+          'teamMembers.userId': req.userId,
+          'teamMembers.status': 'active'
+        }
+      ],
       targetCompletionDate: { $lt: now },
-      status: { $nin: ['completed', 'cancelled'] }
+      status: { $nin: ['completed', 'cancelled'] },
+      archived: { $ne: true }
     })
     .sort({ targetCompletionDate: 1 })
     .lean();
 
+    // Enhanced response with categories included
     res.json({
-      overview: stats,
+      overview: {
+        totalProjects: stats.totalProjects,
+        planningProjects: stats.planningProjects,
+        activeProjects: stats.activeProjects,
+        onHoldProjects: stats.onHoldProjects,
+        completedProjects: stats.completedProjects,
+        cancelledProjects: stats.cancelledProjects,
+        overdueProjects: stats.overdueProjects,
+        avgCompletion: stats.avgCompletion
+      },
+      categories: stats.categories || [], // Add categories to the response
       recentProjects: recentProjects.map(p => ({
         id: p._id,
         title: p.title,
         status: p.status,
         updatedAt: p.updatedAt,
-        progress: calculateProjectProgress(p.milestones)
+        progress: calculateProjectProgress(p.milestones),
+        isOwner: p.userId.toString() === req.userId,
+        owner: p.userId
       })),
       upcomingDeadlines: upcomingDeadlines.map(p => ({
         id: p._id,
         title: p.title,
         targetCompletionDate: p.targetCompletionDate,
-        daysUntilDeadline: Math.ceil((new Date(p.targetCompletionDate) - now) / (1000 * 60 * 60 * 24))
+        daysUntilDeadline: Math.ceil((new Date(p.targetCompletionDate) - now) / (1000 * 60 * 60 * 24)),
+        isOwner: p.userId.toString() === req.userId
       })),
       overdueProjects: overdueProjects.map(p => ({
         id: p._id,
         title: p.title,
         targetCompletionDate: p.targetCompletionDate,
-        daysOverdue: Math.ceil((now - new Date(p.targetCompletionDate)) / (1000 * 60 * 60 * 24))
+        daysOverdue: Math.ceil((now - new Date(p.targetCompletionDate)) / (1000 * 60 * 60 * 24)),
+        isOwner: p.userId.toString() === req.userId
       }))
     });
 
