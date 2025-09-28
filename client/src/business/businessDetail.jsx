@@ -1,0 +1,702 @@
+import React, { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import {
+  BuildingOffice2Icon,
+  ChartBarIcon,
+  FolderIcon,
+  UsersIcon,
+  CogIcon,
+  ArrowLeftIcon,
+  TrendingUpIcon,
+  BanknotesIcon,
+  CheckCircleIcon,
+  ExclamationTriangleIcon,
+  InformationCircleIcon,
+  CalendarDaysIcon,
+  UserGroupIcon,
+  CubeIcon,
+  StarIcon as StarIconOutline
+} from '@heroicons/react/24/outline';
+import {
+  BuildingOffice2Icon as BuildingOffice2IconSolid,
+  StarIcon as StarIconSolid
+} from '@heroicons/react/24/solid';
+
+// Import tab components
+import BusinessProjects from './businessProjects';
+import BusinessTeam from './businessTeam';
+
+const BusinessDetail = () => {
+  const { businessId } = useParams();
+  const navigate = useNavigate();
+  
+  // State
+  const [activeTab, setActiveTab] = useState('overview');
+  const [business, setBusiness] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [analytics, setAnalytics] = useState(null);
+  const [filters, setFilters] = useState({
+    currency: 'GBP'
+  });
+
+  // Helper functions
+  const getAuthToken = () => localStorage.getItem('accessToken') || localStorage.getItem('authToken');
+
+  const createFetchOptions = (options = {}) => ({
+    method: options.method || 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${getAuthToken()}`,
+      ...options.headers
+    },
+    ...options
+  });
+
+  // Format currency
+  const formatCurrency = (amount, currency = 'GBP') => {
+    const symbols = { USD: '$', GBP: '£', EUR: '€' };
+    return `${symbols[currency] || '£'}${parseFloat(amount || 0).toFixed(2)}`;
+  };
+
+  // Load business data
+  const loadBusinessData = async () => {
+    try {
+      setLoading(true);
+      
+      const [businessRes, analyticsRes] = await Promise.all([
+        fetch(`http://localhost:5001/api/businesses/${businessId}`, createFetchOptions()),
+        fetch(`http://localhost:5001/api/businesses/${businessId}/analytics`, createFetchOptions()).catch(() => ({ ok: false }))
+      ]);
+
+      if (businessRes.ok) {
+        const businessData = await businessRes.json();
+        setBusiness(businessData);
+      } else if (businessRes.status === 404) {
+        navigate('/business');
+        return;
+      } else if (businessRes.status === 403) {
+        navigate('/business');
+        return;
+      }
+
+      if (analyticsRes.ok) {
+        const analyticsData = await analyticsRes.json();
+        setAnalytics(analyticsData);
+      } else {
+        // Set default analytics if endpoint doesn't exist
+        setAnalytics({
+          projects: { active: 0, completed: 0 },
+          tasks: { total: 0 },
+          timeline: { recentActivity: [] }
+        });
+      }
+
+    } catch (error) {
+      console.error('Error loading business data:', error);
+      // Don't navigate away on error, just show with limited data
+      setAnalytics({
+        projects: { active: 0, completed: 0 },
+        tasks: { total: 0 },
+        timeline: { recentActivity: [] }
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (businessId) {
+      loadBusinessData();
+    }
+  }, [businessId]);
+
+  // Navigation tabs
+  const tabs = [
+    { id: 'overview', name: 'Overview', icon: ChartBarIcon },
+    { id: 'projects', name: 'Projects', icon: FolderIcon },
+    { id: 'team', name: 'Team', icon: UsersIcon },
+    { id: 'settings', name: 'Settings', icon: CogIcon }
+  ];
+
+  // Get tab-specific header content
+  const getHeaderContent = () => {
+    if (!business) {
+      return {
+        title: 'Business Dashboard',
+        subtitle: 'Loading business information...'
+      };
+    }
+
+    switch (activeTab) {
+      case 'overview':
+        return {
+          title: `${business.name} - Overview`,
+          subtitle: 'Complete analysis of your business performance'
+        };
+      case 'projects':
+        return {
+          title: `${business.name} - Projects`,
+          subtitle: 'Manage and track projects linked to this business'
+        };
+      case 'team':
+        return {
+          title: `${business.name} - Team`,
+          subtitle: 'Manage team members and permissions'
+        };
+      case 'settings':
+        return {
+          title: `${business.name} - Settings`,
+          subtitle: 'Configure business settings and preferences'
+        };
+      default:
+        return {
+          title: business.name,
+          subtitle: 'Business dashboard and management'
+        };
+    }
+  };
+
+  // Individual Business Overview Component (NOT the general BusinessOverview)
+  const renderIndividualBusinessOverview = () => {
+    if (!business) {
+      return (
+        <div className="flex items-center justify-center py-20">
+          <div className="animate-spin w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
+        </div>
+      );
+    }
+
+    const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
+    const isOwner = business.ownerId?._id === currentUser.id || business.ownerId === currentUser.id;
+
+    // Calculate business metrics
+    const totalRevenue = business.products?.reduce((sum, product) => 
+      sum + (product.metrics?.revenue || 0), 0) || 0;
+    const activeProducts = business.products?.filter(p => p.status === 'active').length || 0;
+    const totalProducts = business.products?.length || 0;
+    const activeTeamMembers = business.teamMembers?.filter(m => m.status === 'active').length || 0;
+    const linkedProjects = business.linkedProjects?.length || 0;
+
+    // Calculate health score
+    let healthScore = 0;
+    const targetRevenue = business.metrics?.targetRevenue?.annual || 1;
+    const revenueProgress = Math.min(totalRevenue / targetRevenue, 1) * 30;
+    const productScore = totalProducts > 0 ? (activeProducts / totalProducts) * 25 : 0;
+    const teamScore = Math.min(activeTeamMembers * 5, 20);
+    const projectScore = Math.min(linkedProjects * 3, 15);
+    const activityScore = business.status === 'active' ? 10 : 0;
+    
+    healthScore = revenueProgress + productScore + teamScore + projectScore + activityScore;
+
+    const getHealthLevel = (score) => {
+      if (score >= 80) return { level: "Excellent", color: "emerald" };
+      if (score >= 65) return { level: "Good", color: "green" };
+      if (score >= 50) return { level: "Fair", color: "yellow" };
+      if (score >= 35) return { level: "Poor", color: "orange" };
+      return { level: "Critical", color: "red" };
+    };
+
+    const healthInfo = getHealthLevel(healthScore);
+
+    return (
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="space-y-8">
+          {/* Business Info Card */}
+          <div className="bg-white rounded-xl shadow-sm p-6">
+            <div className="flex items-start justify-between">
+              <div className="flex items-start space-x-4">
+                <div className="w-16 h-16 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-xl flex items-center justify-center">
+                  <BuildingOffice2IconSolid className="w-8 h-8 text-white" />
+                </div>
+                <div>
+                  <div className="flex items-center space-x-2 mb-2">
+                    <h2 className="text-2xl font-bold text-gray-900">{business.name}</h2>
+                    {isOwner && <StarIconSolid className="w-5 h-5 text-yellow-500" />}
+                    <span className={`px-3 py-1 text-sm font-medium rounded-full ${
+                      business.status === 'active' ? 'bg-green-100 text-green-800' :
+                      business.status === 'paused' ? 'bg-yellow-100 text-yellow-800' :
+                      'bg-gray-100 text-gray-800'
+                    }`}>
+                      {business.status}
+                    </span>
+                  </div>
+                  <p className="text-gray-600 mb-3 max-w-2xl">{business.description}</p>
+                  <div className="flex items-center space-x-6 text-sm text-gray-500">
+                    <span className="flex items-center space-x-1">
+                      <CubeIcon className="w-4 h-4" />
+                      <span className="capitalize">{business.industry?.replace('_', ' ')}</span>
+                    </span>
+                    <span className="flex items-center space-x-1">
+                      <StarIconOutline className="w-4 h-4" />
+                      <span className="capitalize">{business.stage}</span>
+                    </span>
+                    <span className="flex items-center space-x-1">
+                      <CalendarDaysIcon className="w-4 h-4" />
+                      <span>Created {new Date(business.createdAt).toLocaleDateString()}</span>
+                    </span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="text-right">
+                <div className={`text-3xl font-bold text-${healthInfo.color}-600 mb-1`}>
+                  {healthScore.toFixed(0)}
+                </div>
+                <div className={`text-sm font-medium text-${healthInfo.color}-600`}>
+                  {healthInfo.level}
+                </div>
+                <div className="text-xs text-gray-500 mt-1">Health Score</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Key Metrics */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {/* Revenue */}
+            <div className="bg-white rounded-xl shadow-sm p-6 border-l-4 border-green-500">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-12 h-12 bg-gradient-to-r from-green-500 to-emerald-500 rounded-lg flex items-center justify-center">
+                  <BanknotesIcon className="w-6 h-6 text-white" />
+                </div>
+                <div className="flex items-center space-x-1">
+                  <TrendingUpIcon className="w-5 h-5 text-green-600" />
+                  <span className="text-xs text-green-600 font-medium">
+                    {((totalRevenue / (business.metrics?.targetRevenue?.annual || 1)) * 100).toFixed(0)}%
+                  </span>
+                </div>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-1">Total Revenue</h3>
+              <p className="text-3xl font-bold text-green-600">{formatCurrency(totalRevenue, filters.currency)}</p>
+              <div className="mt-3 space-y-1">
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Target:</span>
+                  <span className="font-medium">{formatCurrency(business.metrics?.targetRevenue?.annual || 0, filters.currency)}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Products:</span>
+                  <span className="font-medium">{activeProducts} active</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Team */}
+            <div className="bg-white rounded-xl shadow-sm p-6 border-l-4 border-blue-500">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-12 h-12 bg-gradient-to-r from-blue-500 to-indigo-500 rounded-lg flex items-center justify-center">
+                  <UsersIcon className="w-6 h-6 text-white" />
+                </div>
+                <div className="flex items-center space-x-1">
+                  <UserGroupIcon className="w-5 h-5 text-blue-600" />
+                  <span className="text-xs text-blue-600 font-medium">
+                    {business.teamMembers?.filter(m => m.status === 'pending').length || 0} pending
+                  </span>
+                </div>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-1">Team Members</h3>
+              <p className="text-3xl font-bold text-blue-600">{activeTeamMembers}</p>
+              <div className="mt-3 space-y-1">
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Target:</span>
+                  <span className="font-medium">{business.metrics?.employeeCount?.target || 1}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Your role:</span>
+                  <span className="font-medium capitalize">{isOwner ? 'owner' : 'member'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Projects */}
+            <div className="bg-white rounded-xl shadow-sm p-6 border-l-4 border-purple-500">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-12 h-12 bg-gradient-to-r from-purple-500 to-indigo-500 rounded-lg flex items-center justify-center">
+                  <FolderIcon className="w-6 h-6 text-white" />
+                </div>
+                <div className="flex items-center space-x-1">
+                  <CheckCircleIcon className="w-5 h-5 text-purple-600" />
+                  <span className="text-xs text-purple-600 font-medium">
+                    {analytics?.projects?.completed || 0} completed
+                  </span>
+                </div>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-1">Linked Projects</h3>
+              <p className="text-3xl font-bold text-purple-600">{linkedProjects}</p>
+              <div className="mt-3 space-y-1">
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Active:</span>
+                  <span className="font-medium">{analytics?.projects?.active || 0}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Tasks:</span>
+                  <span className="font-medium">{analytics?.tasks?.total || 0}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Products */}
+            <div className="bg-white rounded-xl shadow-sm p-6 border-l-4 border-emerald-500">
+              <div className="flex items-center justify-between mb-4">
+                <div className="w-12 h-12 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-lg flex items-center justify-center">
+                  <CubeIcon className="w-6 h-6 text-white" />
+                </div>
+                <div className="flex items-center space-x-1">
+                  <TrendingUpIcon className="w-5 h-5 text-emerald-600" />
+                  <span className="text-xs text-emerald-600 font-medium">
+                    {totalProducts > 0 ? ((activeProducts / totalProducts) * 100).toFixed(0) : 0}% active
+                  </span>
+                </div>
+              </div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-1">Products</h3>
+              <p className="text-3xl font-bold text-emerald-600">{totalProducts}</p>
+              <div className="mt-3 space-y-1">
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Active:</span>
+                  <span className="font-medium">{activeProducts}</span>
+                </div>
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>Development:</span>
+                  <span className="font-medium">{business.products?.filter(p => p.status === 'development').length || 0}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Business Health & Analytics */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Health Score Breakdown */}
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
+                <CheckCircleIcon className="w-5 h-5 mr-2 text-emerald-600" />
+                Business Health Breakdown
+              </h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>Revenue Progress</span>
+                    <span>{((totalRevenue / (business.metrics?.targetRevenue?.annual || 1)) * 100).toFixed(0)}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className="h-2 rounded-full bg-gradient-to-r from-green-400 to-green-600"
+                      style={{ width: `${Math.min((totalRevenue / (business.metrics?.targetRevenue?.annual || 1)) * 100, 100)}%` }}
+                    ></div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>Product Success</span>
+                    <span>{totalProducts > 0 ? ((activeProducts / totalProducts) * 100).toFixed(0) : 0}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className="h-2 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600"
+                      style={{ width: `${totalProducts > 0 ? (activeProducts / totalProducts) * 100 : 0}%` }}
+                    ></div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>Team Growth</span>
+                    <span>{((activeTeamMembers / (business.metrics?.employeeCount?.target || 1)) * 100).toFixed(0)}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className="h-2 rounded-full bg-gradient-to-r from-blue-400 to-blue-600"
+                      style={{ width: `${Math.min((activeTeamMembers / (business.metrics?.employeeCount?.target || 1)) * 100, 100)}%` }}
+                    ></div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span>Project Integration</span>
+                    <span>{Math.min(linkedProjects * 20, 100)}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className="h-2 rounded-full bg-gradient-to-r from-purple-400 to-purple-600"
+                      style={{ width: `${Math.min(linkedProjects * 20, 100)}%` }}
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Recent Activity */}
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                <InformationCircleIcon className="w-5 h-5 mr-2 text-emerald-600" />
+                Recent Activity
+              </h3>
+              
+              <div className="space-y-3">
+                {analytics?.timeline?.recentActivity?.slice(0, 6).map((activity, index) => (
+                  <div key={index} className="flex items-center space-x-3 p-2 bg-gray-50 rounded-lg">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
+                      activity.type === 'project' ? 'bg-purple-100' : 'bg-blue-100'
+                    }`}>
+                      {activity.type === 'project' ? (
+                        <FolderIcon className={`w-4 h-4 ${activity.type === 'project' ? 'text-purple-600' : 'text-blue-600'}`} />
+                      ) : (
+                        <CheckCircleIcon className="w-4 h-4 text-blue-600" />
+                      )}
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">
+                        {activity.action === 'completed' ? 'Completed' : 'Updated'} {activity.type}
+                      </p>
+                      <p className="text-xs text-gray-500">{activity.item}</p>
+                    </div>
+                    <div className="text-xs text-gray-400">
+                      {new Date(activity.date).toLocaleDateString()}
+                    </div>
+                  </div>
+                ))}
+                {(!analytics?.timeline?.recentActivity || analytics.timeline.recentActivity.length === 0) && (
+                  <div className="text-center py-8 text-gray-500">
+                    <InformationCircleIcon className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                    <p>No recent activity</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Business Details Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Products List */}
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Products & Services</h3>
+              <div className="space-y-3">
+                {business.products?.slice(0, 5).map((product, index) => (
+                  <div key={product._id || index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div>
+                      <p className="text-sm font-medium text-gray-900">{product.name}</p>
+                      <p className="text-xs text-gray-500 capitalize">{product.category}</p>
+                    </div>
+                    <div className="text-right">
+                      <span className={`text-xs px-2 py-1 rounded-full ${
+                        product.status === 'active' ? 'bg-green-100 text-green-800' :
+                        product.status === 'development' ? 'bg-blue-100 text-blue-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {product.status}
+                      </span>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {formatCurrency(product.pricing?.amount || 0, filters.currency)}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+                {(!business.products || business.products.length === 0) && (
+                  <div className="text-center py-8 text-gray-500">
+                    <CubeIcon className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                    <p className="text-sm">No products added yet</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Team Members Preview */}
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Team Members</h3>
+              <div className="space-y-3">
+                {business.teamMembers?.filter(m => m.status === 'active').slice(0, 5).map((member, index) => (
+                  <div key={member._id || index} className="flex items-center space-x-3">
+                    <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                      <span className="text-xs font-medium text-blue-600">
+                        {member.userId?.firstName?.charAt(0) || member.email?.charAt(0)?.toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-gray-900">
+                        {member.userId ? `${member.userId.firstName} ${member.userId.lastName}` : member.email}
+                      </p>
+                      <p className="text-xs text-gray-500 capitalize">{member.role}</p>
+                    </div>
+                    {member.role === 'owner' && <StarIconSolid className="w-4 h-4 text-yellow-500" />}
+                  </div>
+                ))}
+                {(!business.teamMembers || business.teamMembers.filter(m => m.status === 'active').length === 0) && (
+                  <div className="text-center py-8 text-gray-500">
+                    <UsersIcon className="w-12 h-12 text-gray-300 mx-auto mb-2" />
+                    <p className="text-sm">No team members</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
+              <div className="space-y-3">
+                <button
+                  onClick={() => setActiveTab('projects')}
+                  className="w-full text-left p-3 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
+                >
+                  <div className="flex items-center space-x-2">
+                    <FolderIcon className="w-5 h-5 text-purple-600" />
+                    <span className="text-sm font-medium text-purple-900">View Projects</span>
+                  </div>
+                  <p className="text-xs text-purple-600 mt-1">{linkedProjects} linked projects</p>
+                </button>
+                
+                <button
+                  onClick={() => setActiveTab('team')}
+                  className="w-full text-left p-3 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
+                >
+                  <div className="flex items-center space-x-2">
+                    <UsersIcon className="w-5 h-5 text-blue-600" />
+                    <span className="text-sm font-medium text-blue-900">Manage Team</span>
+                  </div>
+                  <p className="text-xs text-blue-600 mt-1">{activeTeamMembers} active members</p>
+                </button>
+                
+                {isOwner && (
+                  <button
+                    onClick={() => setActiveTab('settings')}
+                    className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
+                  >
+                    <div className="flex items-center space-x-2">
+                      <CogIcon className="w-5 h-5 text-gray-600" />
+                      <span className="text-sm font-medium text-gray-900">Settings</span>
+                    </div>
+                    <p className="text-xs text-gray-600 mt-1">Configure business</p>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    );
+  };
+
+  // Settings Component
+  const renderSettings = () => (
+    <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="bg-white rounded-xl shadow-sm p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Business Settings</h3>
+        <p className="text-gray-600">Settings functionality will be implemented here.</p>
+        <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+          <p className="text-sm text-blue-700">
+            Business settings including editing business information, managing permissions, and danger zone actions.
+          </p>
+        </div>
+      </div>
+    </main>
+  );
+
+  // Render active component content
+  const renderActiveComponent = () => {
+    switch (activeTab) {
+      case 'overview':
+        return renderIndividualBusinessOverview();
+      case 'projects':
+        return <BusinessProjects />;
+      case 'team':
+        return <BusinessTeam />;
+      case 'settings':
+        return renderSettings();
+      default:
+        return renderIndividualBusinessOverview();
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading business...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const headerContent = getHeaderContent();
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
+      {/* Header - Always Visible */}
+      <div className="bg-white shadow-sm border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center space-x-4">
+              <button
+                onClick={() => navigate('/business')}
+                className="flex items-center space-x-2 px-3 py-2 text-gray-600 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-all duration-200"
+              >
+                <ArrowLeftIcon className="w-5 h-5" />
+                <span className="font-medium">Back to Businesses</span>
+              </button>
+              
+              <div className="border-l border-gray-300 h-6"></div>
+              
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">
+                  {headerContent.title}
+                </h1>
+                <p className="text-sm text-gray-600">
+                  {headerContent.subtitle}
+                </p>
+              </div>
+            </div
+            
+            <div className="flex items-center space-x-4">
+              <select
+                value={filters.currency}
+                onChange={(e) => setFilters(prev => ({ ...prev, currency: e.target.value }))}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+              >
+                <option value="GBP">GBP (£)</option>
+                <option value="USD">USD ($)</option>
+                <option value="EUR">EUR (€)</option>
+              </select>
+              
+              <div className="flex items-center space-x-2 px-3 py-2 bg-emerald-50 rounded-lg">
+                <BuildingOffice2Icon className="w-5 h-5 text-emerald-600" />
+                <span className="text-sm font-medium text-emerald-900">Business Dashboard</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Navigation Tabs - Always Visible */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <nav className="flex space-x-8">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center space-x-2 py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
+                    activeTab === tab.id
+                      ? 'border-emerald-500 text-emerald-600'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <Icon className="w-5 h-5" />
+                  <span>{tab.name}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+      </div>
+
+      {/* Render Active Component Content */}
+      <div className="flex-1">
+        {renderActiveComponent()}
+      </div>
+    </div>
+  );
+};
+
+export default BusinessDetail;

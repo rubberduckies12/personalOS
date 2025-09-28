@@ -106,16 +106,19 @@ const productSchema = new mongoose.Schema({
   }
 }, { _id: true, timestamps: true });
 
-// Team Member Schema for inviting users
+// Team Member Schema for inviting users - FIXED EMAIL REQUIREMENT
 const teamMemberSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    ref: 'Account',
     sparse: true // Allows null for pending invitations
   },
   email: {
     type: String,
-    required: true,
+    required: function() {
+      // Email is required only if userId is not set (pending invitations)
+      return !this.userId;
+    },
     trim: true,
     lowercase: true
   },
@@ -149,7 +152,7 @@ const teamMemberSchema = new mongoose.Schema({
   },
   invitedBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    ref: 'Account',
     required: true
   },
   inviteToken: {
@@ -202,10 +205,10 @@ const businessSchema = new mongoose.Schema({
     default: 'idea'
   },
   
-  // Owner and Team
+  // Owner and Team - FIXED TO USE 'Account'
   ownerId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    ref: 'Account', // Changed from 'User' to 'Account'
     required: true
   },
   teamMembers: [teamMemberSchema],
@@ -273,8 +276,23 @@ const businessSchema = new mongoose.Schema({
     },
     role: {
       type: String,
-      enum: ['primary', 'supporting', 'related'],
+      enum: ['primary', 'supporting', 'related', 'dependency'],
       default: 'related'
+    },
+    priority: {
+      type: String,
+      enum: ['critical', 'high', 'medium', 'low'],
+      default: 'medium'
+    },
+    businessPhase: {
+      type: String,
+      enum: ['research', 'development', 'launch', 'growth', 'maintenance'],
+      default: 'development'
+    },
+    expectedImpact: {
+      type: String,
+      enum: ['high', 'medium', 'low'],
+      default: 'medium'
     },
     linkedAt: {
       type: Date,
@@ -282,9 +300,27 @@ const businessSchema = new mongoose.Schema({
     },
     linkedBy: {
       type: mongoose.Schema.Types.ObjectId,
-      ref: 'User',
+      ref: 'Account',
       required: true
-    }
+    },
+    // Roadmap positioning
+    roadmapPosition: {
+      x: { type: Number, default: 0 },
+      y: { type: Number, default: 0 },
+      lane: { type: String, default: 'development' } // For swimlanes
+    },
+    // Dependencies between business projects
+    dependencies: [{
+      projectId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Project'
+      },
+      type: {
+        type: String,
+        enum: ['blocks', 'enables', 'supports'],
+        default: 'supports'
+      }
+    }]
   }],
   
   // Business Metrics and Goals
@@ -406,15 +442,15 @@ const businessSchema = new mongoose.Schema({
     }
   },
   
-  // Audit Trail
+  // Audit Trail - FIXED TO USE 'Account'
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    ref: 'Account', // Changed from 'User' to 'Account'
     required: true
   },
   lastUpdatedBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
+    ref: 'Account' // Changed from 'User' to 'Account'
   },
   
   // Archive functionality
@@ -423,7 +459,7 @@ const businessSchema = new mongoose.Schema({
   },
   archivedBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
+    ref: 'Account' // Changed from 'User' to 'Account'
   },
   archiveReason: {
     type: String,
@@ -481,7 +517,7 @@ businessSchema.virtual('primaryWebsite').get(function() {
 });
 
 // Pre-save middleware
-businessSchema.pre('save', function(next) {
+businessSchema.pre('save', async function(next) {
   // Set lastUpdatedBy if it's an update
   if (this.isModified() && !this.isNew) {
     this.updatedAt = new Date();
@@ -494,21 +530,36 @@ businessSchema.pre('save', function(next) {
     );
     
     if (!ownerInTeam) {
-      this.teamMembers.push({
-        userId: this.ownerId,
-        email: '', // Will need to be filled from User model
-        role: 'owner',
-        status: 'active',
-        joinedAt: new Date(),
-        invitedBy: this.ownerId,
-        permissions: [
-          'view_business', 'edit_business', 'delete_business',
-          'manage_products', 'view_products',
-          'manage_projects', 'view_projects',
-          'manage_team', 'invite_users',
-          'view_analytics', 'manage_integrations'
-        ]
-      });
+      try {
+        // Fetch owner's email from Account model
+        const Account = this.constructor.db.model('Account');
+        const owner = await Account.findById(this.ownerId).select('email');
+        
+        if (owner && owner.email) {
+          this.teamMembers.push({
+            userId: this.ownerId,
+            email: owner.email.toLowerCase(),
+            role: 'owner',
+            status: 'active',
+            joinedAt: new Date(),
+            invitedBy: this.ownerId,
+            permissions: [
+              'view_business', 'edit_business', 'delete_business',
+              'manage_products', 'view_products',
+              'manage_projects', 'view_projects',
+              'manage_team', 'invite_users',
+              'view_analytics', 'manage_integrations'
+            ]
+          });
+        } else {
+          // If we can't find the owner's email, don't add them to team members
+          // The business creation will still work, but owner won't be in team members
+          console.warn(`Could not find email for owner ${this.ownerId}`);
+        }
+      } catch (error) {
+        console.error('Error fetching owner email in pre-save middleware:', error);
+        // Continue without adding owner to team members if there's an error
+      }
     }
   }
   

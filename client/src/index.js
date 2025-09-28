@@ -133,7 +133,7 @@ const App = () => {
           </ProtectedRoute>
         } />
         
-        {/* Module Routes */}
+        {/* Other Module Routes */}
         <Route path="/tasks" element={
           <ProtectedRoute>
             <TasksPage />

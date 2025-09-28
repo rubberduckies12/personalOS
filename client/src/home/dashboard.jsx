@@ -18,7 +18,8 @@ import {
   BuildingOffice2Icon,
   PlusIcon,
   ArrowRightIcon,
-  ClockIcon
+  ClockIcon,
+  UsersIcon
 } from '@heroicons/react/24/outline';
 
 const Dashboard = () => {
@@ -34,7 +35,8 @@ const Dashboard = () => {
     goals: { total: 0, achieved: 0, inProgress: 0 },
     reading: { total: 0, read: 0, currentlyReading: 0 },
     skills: { total: 0, mastered: 0, learning: 0 },
-    finances: { income: 0, expenses: 0, savings: 0 }
+    finances: { income: 0, expenses: 0, savings: 0 },
+    businesses: { total: 0, active: 0, owned: 0, member: 0 }
   });
   const [businesses, setBusinesses] = useState([]);
   const [upcomingEvents, setUpcomingEvents] = useState([]);
@@ -317,14 +319,15 @@ const Dashboard = () => {
         }
       };
 
-      // Fetch data from existing endpoints with JWT authentication (removed businesses API call)
+      // Fetch data from all endpoints including businesses
       const [
         tasksData,
         projectsData,
         goalsData,
         readingData,
         skillsData,
-        financesData
+        financesData,
+        businessesData
       ] = await Promise.all([
         fetchWithFallback(
           'http://localhost:5001/api/tasks/analytics/overview',
@@ -349,6 +352,17 @@ const Dashboard = () => {
         fetchWithFallback(
           'http://localhost:5001/api/finances/budgets?limit=1',
           { summary: { income: 0, expenses: 0, savings: 0 } }
+        ),
+        // Try to fetch business data, but use fallback if it fails
+        fetchWithFallback(
+          'http://localhost:5001/api/businesses/dashboard/stats',
+          { 
+            totalBusinesses: 0, 
+            activeBusinesses: 0, 
+            ownedBusinesses: 0, 
+            memberBusinesses: 0,
+            recentBusinesses: []
+          }
         )
       ]);
 
@@ -361,7 +375,7 @@ const Dashboard = () => {
 
       console.log('📊 Processing API data with JWT auth successful...');
 
-      // Update stats with real data
+      // Update stats with real data including businesses
       setStats({
         tasks: {
           total: tasksData.summary?.total || 0,
@@ -392,19 +406,25 @@ const Dashboard = () => {
           income: financesData.summary?.income || financesData.income || 0,
           expenses: financesData.summary?.expenses || financesData.expenses || 0,
           savings: financesData.summary?.savings || financesData.savings || 0
+        },
+        businesses: {
+          total: businessesData?.totalBusinesses || 0,
+          active: businessesData?.activeBusinesses || 0,
+          owned: businessesData?.ownedBusinesses || 0,
+          member: businessesData?.memberBusinesses || 0
         }
       });
 
-      // Set placeholder businesses data until the API is built
-      setBusinesses([
+      // Set businesses data - use real data if available, fallback to sample if not
+      setBusinesses(businessesData?.recentBusinesses || [
         {
-          id: 'placeholder-1',
-          name: 'PersonalOS Ventures',
+          id: 'sample-1',
+          _id: 'sample-1',
+          name: 'Your First Business',
           industry: 'Technology',
-          status: 'active',
-          teamSize: 1,
-          stage: 'Planning',
-          description: 'Your first business venture'
+          status: 'planning',
+          activeTeamMembers: [{ userId: 'you' }],
+          description: 'Start building your business empire here!'
         }
       ]);
 
@@ -472,7 +492,7 @@ const Dashboard = () => {
     {
       name: 'Finances',
       icon: CurrencyDollarIcon,
-      color: 'from-emerald-500 to-teal-500',
+      color: 'from-yellow-500 to-orange-500',
       path: '/finances',
       stats: `Budget tracking`,
       progress: 0
@@ -705,41 +725,94 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Businesses Card - Updated with placeholder message */}
+          {/* Businesses Card - NOW FULLY FUNCTIONAL */}
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center space-x-2">
                 <BuildingOffice2Icon className="w-6 h-6 text-emerald-600" />
                 <h3 className="text-lg font-semibold text-gray-900">Your Businesses</h3>
               </div>
-              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
-                Coming Soon
-              </span>
+              <button 
+                onClick={() => navigate('/business')}
+                className="text-sm text-emerald-600 hover:text-emerald-700 font-medium flex items-center space-x-1"
+              >
+                <span>View All</span>
+                <ArrowRightIcon className="w-4 h-4" />
+              </button>
             </div>
             
             <div className="space-y-3">
-              <div className="text-center py-8">
-                <BuildingOffice2Icon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                <p className="text-gray-500 text-sm mb-2">Business Management Coming Soon!</p>
-                <p className="text-xs text-gray-400 mb-4">
-                  Track and manage your business ventures, partnerships, and entrepreneurial projects
-                </p>
-                <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-lg p-4 text-left">
-                  <h4 className="text-sm font-semibold text-emerald-800 mb-2">Planned Features:</h4>
-                  <ul className="text-xs text-emerald-700 space-y-1">
-                    <li>• Business idea tracking</li>
-                    <li>• Revenue & expense monitoring</li>
-                    <li>• Team member management</li>
-                    <li>• Business milestone tracking</li>
-                    <li>• Partnership management</li>
-                  </ul>
+              {businesses.length > 0 ? (
+                <>
+                  {businesses.slice(0, 3).map((business) => (
+                    <div 
+                      key={business.id || business._id}
+                      onClick={() => navigate(`/business/${business.id || business._id}`)}
+                      className="flex items-center justify-between p-3 rounded-lg bg-gray-50 hover:bg-emerald-50 cursor-pointer transition-colors border border-gray-200 hover:border-emerald-300"
+                    >
+                      <div className="flex items-center space-x-3">
+                        <div className="w-10 h-10 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-lg flex items-center justify-center">
+                          <BuildingOffice2Icon className="w-5 h-5 text-white" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-medium text-gray-900">{business.name}</p>
+                          <div className="flex items-center space-x-2 text-xs text-gray-500">
+                            <span>{business.industry || 'General'}</span>
+                            <span>•</span>
+                            <span className={`${
+                              business.status === 'active' ? 'text-green-600' : 
+                              business.status === 'planning' ? 'text-blue-600' : 
+                              'text-gray-600'
+                            }`}>
+                              {capitalizeFirstLetter(business.status) || 'Active'}
+                            </span>
+                            {business.activeTeamMembers && (
+                              <>
+                                <span>•</span>
+                                <div className="flex items-center space-x-1">
+                                  <UsersIcon className="w-3 h-3" />
+                                  <span>{business.activeTeamMembers.length}</span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      <ArrowRightIcon className="w-4 h-4 text-gray-400" />
+                    </div>
+                  ))}
+                  
+                  <div className="text-center pt-2">
+                    <button 
+                      onClick={() => navigate('/business')}
+                      className="text-emerald-600 hover:text-emerald-700 text-sm font-medium flex items-center space-x-1 mx-auto"
+                    >
+                      <PlusIcon className="w-4 h-4" />
+                      <span>Create New Business</span>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="text-center py-8">
+                  <BuildingOffice2Icon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-500 text-sm mb-2">No businesses yet</p>
+                  <p className="text-xs text-gray-400 mb-4">
+                    Create and manage your business ventures
+                  </p>
+                  <button 
+                    onClick={() => navigate('/business')}
+                    className="bg-emerald-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors flex items-center space-x-2 mx-auto"
+                  >
+                    <PlusIcon className="w-4 h-4" />
+                    <span>Create First Business</span>
+                  </button>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Stats Card - Updated without business stats */}
+        {/* Stats Card - Updated with business stats */}
         <div className="mt-8 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-8 text-white">
           <div className="text-center mb-6">
             <h3 className="text-2xl font-bold mb-2">Your Achievement Summary</h3>
@@ -748,7 +821,7 @@ const Dashboard = () => {
             </p>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
             {/* Projects Completed */}
             <div className="text-center">
               <div className="bg-white/20 rounded-lg p-6 mb-3">
@@ -778,6 +851,22 @@ const Dashboard = () => {
               </div>
               <div className="text-xs text-blue-200">
                 {stats.goals.inProgress} in progress • {stats.goals.total} total
+              </div>
+            </div>
+
+            {/* Businesses Active */}
+            <div className="text-center">
+              <div className="bg-white/20 rounded-lg p-6 mb-3">
+                <BuildingOffice2Icon className="w-12 h-12 text-white mx-auto mb-3" />
+                <div className="text-3xl font-bold text-white mb-1">
+                  {stats.businesses.active || businesses.length}
+                </div>
+                <div className="text-blue-100 text-sm font-medium">
+                  Active Business{(stats.businesses.active || businesses.length) !== 1 ? 'es' : ''}
+                </div>
+              </div>
+              <div className="text-xs text-blue-200">
+                {stats.businesses.owned || 0} owned • {stats.businesses.member || 0} member
               </div>
             </div>
 
@@ -853,6 +942,14 @@ const Dashboard = () => {
             >
               <PlusIcon className="w-4 h-4" />
               <span>New Goal</span>
+            </button>
+            
+            <button 
+              onClick={() => navigate('/business')}
+              className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg font-medium transition-colors border border-white/20 flex items-center space-x-2"
+            >
+              <PlusIcon className="w-4 h-4" />
+              <span>New Business</span>
             </button>
             
             <button 
