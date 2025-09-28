@@ -26,16 +26,23 @@ import {
   CheckCircleIcon as CheckCircleIconSolid
 } from '@heroicons/react/24/solid';
 
-const BusinessTeam = () => {
+const BusinessTeam = ({ businessData }) => {
   const { businessId } = useParams();
   const navigate = useNavigate();
 
   // State
-  const [loading, setLoading] = useState(true);
-  const [business, setBusiness] = useState(null);
-  const [teamMembers, setTeamMembers] = useState([]);
+  const [loading, setLoading] = useState(false); // Start false since we have data
+  const [business, setBusiness] = useState(businessData || null);
+  const [teamMembers, setTeamMembers] = useState(businessData?.teamMembers || []);
   const [chartData, setChartData] = useState(null);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [inviteData, setInviteData] = useState({
+    email: '',
+    role: 'member',
+    jobTitle: '',
+    level: 1,
+    permissions: []
+  });
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedMember, setSelectedMember] = useState(null);
   const [viewMode, setViewMode] = useState('grid'); // grid, list, chart
@@ -45,19 +52,6 @@ const BusinessTeam = () => {
     role: 'all',
     department: 'all',
     level: 'all'
-  });
-
-  // FIXED: Move invite form state to component level
-  const [inviteFormData, setInviteFormData] = useState({
-    email: '',
-    role: 'member',
-    jobTitle: '',
-    level: 1,
-    responsibilities: '',
-    employmentType: 'full-time',
-    department: '',
-    startDate: '',
-    permissions: []
   });
 
   // Helper functions
@@ -73,25 +67,65 @@ const BusinessTeam = () => {
     ...options
   });
 
-  // Load team data
+  // FIXED: Only load additional data when business data is passed
   const loadTeamData = async () => {
     try {
       setLoading(true);
       
-      const [businessRes, chartRes] = await Promise.all([
-        fetch(`http://localhost:5001/api/businesses/${businessId}`, createFetchOptions()),
-        fetch(`http://localhost:5001/api/businesses/${businessId}/team/chart`, createFetchOptions()).catch(() => ({ ok: false }))
-      ]);
-
-      if (businessRes.ok) {
-        const businessData = await businessRes.json();
-        setBusiness(businessData);
-        setTeamMembers(businessData.teamMembers || []);
+      // Use passed business data or load from API
+      let currentBusiness = businessData;
+      if (!currentBusiness) {
+        console.log('No business data passed, loading from API...');
+        const businessRes = await fetch(`http://localhost:5001/api/businesses/${businessId}`, createFetchOptions());
+        if (businessRes.ok) {
+          currentBusiness = await businessRes.json();
+        } else {
+          console.error('Failed to load business data:', businessRes.status);
+          setLoading(false);
+          return;
+        }
       }
+      
+      setBusiness(currentBusiness);
+      setTeamMembers(currentBusiness.teamMembers || []);
 
-      if (chartRes.ok) {
-        const chartData = await chartRes.json();
-        setChartData(chartData);
+      // FIXED: Don't try to load chart data if endpoint doesn't exist
+      // Instead, generate basic chart data from team members
+      if (currentBusiness.teamMembers && currentBusiness.teamMembers.length > 0) {
+        const roles = {};
+        const levels = {};
+        const departments = {};
+
+        currentBusiness.teamMembers.forEach(member => {
+          // Count by role
+          roles[member.role] = (roles[member.role] || 0) + 1;
+          
+          // Count by level
+          const level = member.level || 1;
+          levels[`Level ${level}`] = (levels[`Level ${level}`] || 0) + 1;
+          
+          // Count by department
+          const dept = member.department || 'General';
+          departments[dept] = (departments[dept] || 0) + 1;
+        });
+
+        setChartData({
+          roles: Object.entries(roles).map(([role, count]) => ({ role, count })),
+          levels: Object.entries(levels).map(([level, count]) => ({ level, count })),
+          departments: Object.entries(departments).map(([dept, count]) => ({ department: dept, count })),
+          totalMembers: currentBusiness.teamMembers.length,
+          activeMembers: currentBusiness.teamMembers.filter(m => m.status === 'active').length,
+          pendingInvites: currentBusiness.teamMembers.filter(m => m.status === 'pending').length
+        });
+      } else {
+        setChartData({
+          roles: [],
+          levels: [],
+          departments: [],
+          totalMembers: 0,
+          activeMembers: 0,
+          pendingInvites: 0
+        });
       }
 
     } catch (error) {
@@ -101,11 +135,40 @@ const BusinessTeam = () => {
     }
   };
 
+  // FIXED: Load data when component mounts or businessData changes
   useEffect(() => {
-    if (businessId) {
+    if (businessId && (!businessData || businessData._id !== businessId)) {
       loadTeamData();
+    } else if (businessData) {
+      // Use passed business data immediately
+      setBusiness(businessData);
+      setTeamMembers(businessData.teamMembers || []);
+      
+      // Generate chart data from passed business data
+      if (businessData.teamMembers && businessData.teamMembers.length > 0) {
+        const roles = {};
+        const levels = {};
+        const departments = {};
+
+        businessData.teamMembers.forEach(member => {
+          roles[member.role] = (roles[member.role] || 0) + 1;
+          const level = member.level || 1;
+          levels[`Level ${level}`] = (levels[`Level ${level}`] || 0) + 1;
+          const dept = member.department || 'General';
+          departments[dept] = (departments[dept] || 0) + 1;
+        });
+
+        setChartData({
+          roles: Object.entries(roles).map(([role, count]) => ({ role, count })),
+          levels: Object.entries(levels).map(([level, count]) => ({ level, count })),
+          departments: Object.entries(departments).map(([dept, count]) => ({ department: dept, count })),
+          totalMembers: businessData.teamMembers.length,
+          activeMembers: businessData.teamMembers.filter(m => m.status === 'active').length,
+          pendingInvites: businessData.teamMembers.filter(m => m.status === 'pending').length
+        });
+      }
     }
-  }, [businessId]);
+  }, [businessId, businessData]);
 
   // Invite user
   const inviteUser = async (inviteData) => {
@@ -120,15 +183,11 @@ const BusinessTeam = () => {
       if (response.ok) {
         setShowInviteModal(false);
         // Reset form data
-        setInviteFormData({
+        setInviteData({
           email: '',
           role: 'member',
           jobTitle: '',
           level: 1,
-          responsibilities: '',
-          employmentType: 'full-time',
-          department: '',
-          startDate: '',
           permissions: []
         });
         loadTeamData(); // Refresh data
@@ -249,8 +308,8 @@ const BusinessTeam = () => {
           <form onSubmit={(e) => {
             e.preventDefault();
             inviteUser({
-              ...inviteFormData,
-              permissions: inviteFormData.permissions.length > 0 ? inviteFormData.permissions : rolePermissions[inviteFormData.role]
+              ...inviteData,
+              permissions: inviteData.permissions.length > 0 ? inviteData.permissions : rolePermissions[inviteData.role]
             });
           }} className="space-y-6">
             
@@ -264,8 +323,8 @@ const BusinessTeam = () => {
                   type="email"
                   required
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  value={inviteFormData.email}
-                  onChange={(e) => setInviteFormData(prev => ({ ...prev, email: e.target.value }))}
+                  value={inviteData.email}
+                  onChange={(e) => setInviteData(prev => ({ ...prev, email: e.target.value }))}
                   placeholder="user@example.com"
                 />
               </div>
@@ -278,8 +337,8 @@ const BusinessTeam = () => {
                   type="text"
                   required
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  value={inviteFormData.jobTitle}
-                  onChange={(e) => setInviteFormData(prev => ({ ...prev, jobTitle: e.target.value }))}
+                  value={inviteData.jobTitle}
+                  onChange={(e) => setInviteData(prev => ({ ...prev, jobTitle: e.target.value }))}
                   placeholder="e.g. Software Developer, Marketing Manager"
                 />
               </div>
@@ -293,8 +352,8 @@ const BusinessTeam = () => {
                 </label>
                 <select
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  value={inviteFormData.role}
-                  onChange={(e) => setInviteFormData(prev => ({ ...prev, role: e.target.value }))}
+                  value={inviteData.role}
+                  onChange={(e) => setInviteData(prev => ({ ...prev, role: e.target.value }))}
                 >
                   <option value="viewer">Viewer</option>
                   <option value="member">Member</option>
@@ -310,8 +369,8 @@ const BusinessTeam = () => {
                 </label>
                 <select
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  value={inviteFormData.level}
-                  onChange={(e) => setInviteFormData(prev => ({ ...prev, level: parseInt(e.target.value) }))}
+                  value={inviteData.level}
+                  onChange={(e) => setInviteData(prev => ({ ...prev, level: parseInt(e.target.value) }))}
                 >
                   <option value={1}>Level 1 - Entry</option>
                   <option value={2}>Level 2 - Junior</option>
@@ -327,8 +386,8 @@ const BusinessTeam = () => {
                 </label>
                 <select
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  value={inviteFormData.employmentType}
-                  onChange={(e) => setInviteFormData(prev => ({ ...prev, employmentType: e.target.value }))}
+                  value={inviteData.employmentType}
+                  onChange={(e) => setInviteData(prev => ({ ...prev, employmentType: e.target.value }))}
                 >
                   <option value="full-time">Full-time</option>
                   <option value="part-time">Part-time</option>
@@ -349,8 +408,8 @@ const BusinessTeam = () => {
                 <input
                   type="text"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  value={inviteFormData.department}
-                  onChange={(e) => setInviteFormData(prev => ({ ...prev, department: e.target.value }))}
+                  value={inviteData.department}
+                  onChange={(e) => setInviteData(prev => ({ ...prev, department: e.target.value }))}
                   placeholder="e.g. Engineering, Marketing, Sales"
                 />
               </div>
@@ -362,8 +421,8 @@ const BusinessTeam = () => {
                 <input
                   type="date"
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  value={inviteFormData.startDate}
-                  onChange={(e) => setInviteFormData(prev => ({ ...prev, startDate: e.target.value }))}
+                  value={inviteData.startDate}
+                  onChange={(e) => setInviteData(prev => ({ ...prev, startDate: e.target.value }))}
                 />
               </div>
             </div>
@@ -376,8 +435,8 @@ const BusinessTeam = () => {
               <textarea
                 rows={4}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                value={inviteFormData.responsibilities}
-                onChange={(e) => setInviteFormData(prev => ({ ...prev, responsibilities: e.target.value }))}
+                value={inviteData.responsibilities}
+                onChange={(e) => setInviteData(prev => ({ ...prev, responsibilities: e.target.value }))}
                 placeholder="Describe the key responsibilities, duties, and expectations for this role..."
               />
               <p className="text-sm text-gray-500 mt-1">Max 1000 characters</p>
@@ -385,9 +444,9 @@ const BusinessTeam = () => {
 
             {/* Permissions Preview */}
             <div className="p-4 bg-gray-50 rounded-lg">
-              <h4 className="text-sm font-medium text-gray-700 mb-2">Permissions for {inviteFormData.role}:</h4>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">Permissions for {inviteData.role}:</h4>
               <div className="flex flex-wrap gap-2">
-                {rolePermissions[inviteFormData.role]?.map(permission => (
+                {rolePermissions[inviteData.role]?.map(permission => (
                   <span key={permission} className="px-2 py-1 text-xs bg-emerald-100 text-emerald-800 rounded-full">
                     {permission.replace('_', ' ')}
                   </span>
@@ -628,247 +687,175 @@ const BusinessTeam = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
-        <div className="animate-spin w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
+      <div className="flex items-center justify-center py-20">
+        <div className="text-center">
+          <div className="animate-spin w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading team data...</p>
+        </div>
       </div>
     );
   }
 
+  if (!business) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="text-center">
+          <p className="text-gray-600">No business data available</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Main render - Updated to use new team management UI
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="space-y-8">
-        {/* Header */}
+        {/* Team Overview */}
         <div className="bg-white rounded-xl shadow-sm p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h2 className="text-2xl font-bold text-gray-900">Team Management</h2>
-              <p className="text-sm text-gray-600">
-                Manage team members, roles, and permissions for {business?.name}
-              </p>
-            </div>
-            
-            <div className="flex items-center space-x-4">
-              {/* View Mode Toggle */}
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => setViewMode('grid')}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    viewMode === 'grid' ? 'bg-emerald-100 text-emerald-700' : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  Grid
-                </button>
-                <button
-                  onClick={() => setViewMode('list')}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    viewMode === 'list' ? 'bg-emerald-100 text-emerald-700' : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  List
-                </button>
-                <button
-                  onClick={() => setViewMode('chart')}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    viewMode === 'chart' ? 'bg-emerald-100 text-emerald-700' : 'text-gray-600 hover:bg-gray-100'
-                  }`}
-                >
-                  Org Chart
-                </button>
+          <h2 className="text-xl font-bold text-gray-900 mb-6">Team Management</h2>
+          
+          {/* Team Stats */}
+          {chartData && (
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+              <div className="bg-blue-50 rounded-lg p-4">
+                <div className="text-2xl font-bold text-blue-600">{chartData.totalMembers}</div>
+                <div className="text-sm text-blue-800">Total Members</div>
               </div>
-              
-              {canInviteUsers && (
-                <button
-                  onClick={() => setShowInviteModal(true)}
-                  className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-emerald-700 transition-colors flex items-center space-x-2"
-                >
-                  <PlusIcon className="w-4 h-4" />
-                  <span>Invite Member</span>
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Search & Filters */}
-          {viewMode !== 'chart' && (
-            <div className="flex flex-col sm:flex-row gap-4">
-              {/* Search */}
-              <div className="flex-1 relative">
-                <MagnifyingGlassIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <input
-                  type="text"
-                  placeholder="Search team members..."
-                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                />
+              <div className="bg-green-50 rounded-lg p-4">
+                <div className="text-2xl font-bold text-green-600">{chartData.activeMembers}</div>
+                <div className="text-sm text-green-800">Active Members</div>
               </div>
-
-              {/* Filters */}
-              <div className="flex space-x-2">
-                <select
-                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  value={filters.status}
-                  onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
-                >
-                  <option value="all">All Status</option>
-                  <option value="active">Active</option>
-                  <option value="pending">Pending</option>
-                  <option value="inactive">Inactive</option>
-                </select>
-
-                <select
-                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  value={filters.role}
-                  onChange={(e) => setFilters(prev => ({ ...prev, role: e.target.value }))}
-                >
-                  <option value="all">All Roles</option>
-                  <option value="owner">Owner</option>
-                  <option value="admin">Admin</option>
-                  <option value="manager">Manager</option>
-                  <option value="member">Member</option>
-                  <option value="viewer">Viewer</option>
-                  <option value="consultant">Consultant</option>
-                </select>
-
-                <select
-                  className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                  value={filters.level}
-                  onChange={(e) => setFilters(prev => ({ ...prev, level: e.target.value }))}
-                >
-                  <option value="all">All Levels</option>
-                  <option value="5">Level 5 - Lead</option>
-                  <option value="4">Level 4 - Senior</option>
-                  <option value="3">Level 3 - Mid</option>
-                  <option value="2">Level 2 - Junior</option>
-                  <option value="1">Level 1 - Entry</option>
-                </select>
+              <div className="bg-yellow-50 rounded-lg p-4">
+                <div className="text-2xl font-bold text-yellow-600">{chartData.pendingInvites}</div>
+                <div className="text-sm text-yellow-800">Pending Invites</div>
+              </div>
+              <div className="bg-purple-50 rounded-lg p-4">
+                <div className="text-2xl font-bold text-purple-600">{chartData.roles.length}</div>
+                <div className="text-sm text-purple-800">Different Roles</div>
               </div>
             </div>
           )}
+
+          {/* Team Members List */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Team Members</h3>
+              <button
+                onClick={() => setShowInviteModal(true)}
+                className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 transition-colors"
+              >
+                Invite Member
+              </button>
+            </div>
+
+            {teamMembers.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-500">No team members yet.</p>
+                <button
+                  onClick={() => setShowInviteModal(true)}
+                  className="mt-4 bg-emerald-600 text-white px-6 py-3 rounded-lg hover:bg-emerald-700 transition-colors"
+                >
+                  Invite First Member
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4">
+                {teamMembers.map((member, index) => (
+                  <div key={member._id || index} className="bg-gray-50 rounded-lg p-4 flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      <div className="w-10 h-10 bg-emerald-100 rounded-full flex items-center justify-center">
+                        <span className="text-emerald-600 font-medium">
+                          {member.email?.charAt(0).toUpperCase()}
+                        </span>
+                      </div>
+                      <div>
+                        <h4 className="font-medium text-gray-900">
+                          {member.userId ? `${member.userId.firstName} ${member.userId.lastName}` : member.email}
+                        </h4>
+                        <p className="text-sm text-gray-600">
+                          {member.jobTitle || member.role} • Level {member.level || 1}
+                        </p>
+                        <p className="text-xs text-gray-500">{member.email}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                        member.status === 'active' ? 'bg-green-100 text-green-800' :
+                        member.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {member.status}
+                      </span>
+                      <span className="text-sm text-gray-500 capitalize">{member.role}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* Content based on view mode */}
-        {viewMode === 'chart' ? (
-          renderOrgChart()
-        ) : viewMode === 'grid' ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredMembers.map(member => renderMemberCard(member))}
-          </div>
-        ) : (
-          /* List View */
-          <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role & Level</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Joined</th>
-                    {canManageTeam && (
-                      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                    )}
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {filteredMembers.map((member) => {
-                    const fullName = member.userId ? 
-                      `${member.userId.firstName} ${member.userId.lastName}` : 
-                      member.email;
-                    
-                    return (
-                      <tr key={member._id} className="hover:bg-gray-50">
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center space-x-3">
-                            <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                              <span className="text-sm font-medium text-blue-600">
-                                {fullName.charAt(0)}
-                              </span>
-                            </div>
-                            <div>
-                              <div className="flex items-center space-x-2">
-                                <p className="text-sm font-medium text-gray-900">{fullName}</p>
-                                {member.role === 'owner' && <StarIconSolid className="w-4 h-4 text-yellow-500" />}
-                              </div>
-                              <p className="text-sm text-gray-500">{member.jobTitle}</p>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex items-center space-x-2">
-                            <span className="text-sm text-gray-900 capitalize">{member.role}</span>
-                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${getLevelColor(member.level)}`}>
-                              L{member.level}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                          {member.department || '-'}
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap">
-                          <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${getStatusColor(member.status)}`}>
-                            {member.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {member.joinedAt ? new Date(member.joinedAt).toLocaleDateString() : 'Pending'}
-                        </td>
-                        {canManageTeam && (
-                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                            {member.role !== 'owner' && (
-                              <div className="flex items-center space-x-2">
-                                <button
-                                  onClick={() => { setSelectedMember(member); setShowEditModal(true); }}
-                                  className="text-blue-600 hover:text-blue-800"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => removeMember(member._id)}
-                                  className="text-red-600 hover:text-red-800"
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            )}
-                          </td>
-                        )}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+        {/* Departments & Roles - Chart */}
+        {chartData && chartData.departments.length > 0 && (
+          <div className="bg-white rounded-xl shadow-sm p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Department & Role Distribution</h3>
+            
+            {/* Department Chart */}
+            <div className="mb-6">
+              <h4 className="text-sm font-medium text-gray-700 mb-2">By Department</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {chartData.departments.map(dept => (
+                  <div key={dept.department} className="flex items-center justify-between bg-gray-50 rounded-lg p-4">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                        <span className="text-xs font-medium text-blue-600">
+                          {dept.department.charAt(0)}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{dept.department}</p>
+                        <p className="text-xs text-gray-500">{dept.count} members</p>
+                      </div>
+                    </div>
+                    <div className="text-sm text-gray-700">
+                      {Math.round((dept.count / chartData.totalMembers) * 100)}%
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Role Chart */}
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 mb-2">By Role</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {chartData.roles.map(role => (
+                  <div key={role.role} className="flex items-center justify-between bg-gray-50 rounded-lg p-4">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center">
+                        <span className="text-xs font-medium text-purple-600">
+                          {role.role.charAt(0)}
+                        </span>
+                      </div>
+                      <div>
+                        <p className="text-sm font-medium text-gray-900">{role.role}</p>
+                        <p className="text-xs text-gray-500">{role.count} members</p>
+                      </div>
+                    </div>
+                    <div className="text-sm text-gray-700">
+                      {Math.round((role.count / chartData.totalMembers) * 100)}%
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
 
-        {/* Empty State */}
-        {filteredMembers.length === 0 && (
-          <div className="text-center py-12">
-            <UsersIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">No team members found</h3>
-            <p className="text-gray-500 mb-6">
-              {searchTerm || Object.values(filters).some(f => f !== 'all') 
-                ? 'Try adjusting your search or filters' 
-                : 'Start building your team by inviting members'
-              }
-            </p>
-            {canInviteUsers && !searchTerm && Object.values(filters).every(f => f === 'all') && (
-              <button
-                onClick={() => setShowInviteModal(true)}
-                className="bg-emerald-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-emerald-700 transition-colors"
-              >
-                Invite First Team Member
-              </button>
-            )}
-          </div>
-        )}
+        {/* Modals */}
+        {showInviteModal && <InviteModal />}
+        {/* Edit modal would go here - similar structure to invite modal */}
       </div>
-
-      {/* Modals */}
-      {showInviteModal && <InviteModal />}
-      {/* Edit modal would go here - similar structure to invite modal */}
     </main>
   );
 };

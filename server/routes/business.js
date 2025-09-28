@@ -115,48 +115,216 @@ router.get('/', authenticateUser, async (req, res) => {
 // GET /api/businesses/:id - Get specific business
 router.get('/:id', authenticateUser, async (req, res) => {
   try {
+    console.log('🔍 Fetching business with ID:', req.params.id);
+    console.log('👤 User ID:', req.userId);
+    console.log('📊 Request headers:', req.headers.authorization ? 'JWT Present' : 'No JWT');
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      console.error('❌ Invalid business ID format:', req.params.id);
+      return res.status(400).json({ error: 'Invalid business ID format' });
+    }
+
+    // Check database connection
+    if (mongoose.connection.readyState !== 1) {
+      console.error('❌ Database not connected. ReadyState:', mongoose.connection.readyState);
+      return res.status(503).json({ error: 'Database connection unavailable' });
+    }
+
+    console.log('🔄 Attempting to find business...');
+
+    // Find business with selective population to avoid circular references
     const business = await Business.findById(req.params.id)
       .populate([
-        { path: 'ownerId', select: 'firstName lastName email avatar' },
-        { path: 'teamMembers.userId', select: 'firstName lastName email avatar' },
-        { path: 'teamMembers.invitedBy', select: 'firstName lastName email' },
-        { path: 'linkedProjects.projectId', populate: { path: 'assignedTo', select: 'firstName lastName email' } },
-        { path: 'createdBy', select: 'firstName lastName email' },
-        { path: 'lastUpdatedBy', select: 'firstName lastName email' }
-      ]);
+        { 
+          path: 'ownerId', 
+          select: 'firstName lastName email avatar',
+          options: { strictPopulate: false } // Allow missing refs
+        },
+        { 
+          path: 'teamMembers.userId', 
+          select: 'firstName lastName email avatar',
+          options: { strictPopulate: false }
+        },
+        { 
+          path: 'teamMembers.invitedBy', 
+          select: 'firstName lastName email',
+          options: { strictPopulate: false }
+        },
+        { 
+          path: 'createdBy', 
+          select: 'firstName lastName email',
+          options: { strictPopulate: false }
+        },
+        { 
+          path: 'lastUpdatedBy', 
+          select: 'firstName lastName email',
+          options: { strictPopulate: false }
+        }
+      ])
+      .lean() // Use lean for better performance
+      .exec();
 
     if (!business) {
+      console.error('❌ Business not found:', req.params.id);
       return res.status(404).json({ error: 'Business not found' });
     }
 
+    console.log('✅ Business found:', business.name);
+    console.log('🔍 Business owner ID:', business.ownerId?._id || business.ownerId);
+    console.log('👥 Team members count:', business.teamMembers?.length || 0);
+
     // Check if user has access (owner or team member)
-    const hasAccess = business.ownerId._id.toString() === req.userId ||
-      business.teamMembers.some(member => 
-        member.userId?.toString() === req.userId && member.status === 'active'
-      );
+    const ownerIdString = business.ownerId?._id?.toString() || business.ownerId?.toString();
+    const isOwner = ownerIdString === req.userId;
+    
+    const isTeamMember = business.teamMembers?.some(member => {
+      const memberIdString = member.userId?._id?.toString() || member.userId?.toString();
+      return memberIdString === req.userId && member.status === 'active';
+    }) || false;
+
+    const hasAccess = isOwner || isTeamMember;
+
+    console.log('🔐 Access check - Owner:', isOwner, 'Team Member:', isTeamMember, 'Has Access:', hasAccess);
 
     if (!hasAccess) {
-      return res.status(403).json({ error: 'Access denied' });
+      console.error('❌ Access denied for user:', req.userId, 'to business:', req.params.id);
+      return res.status(403).json({ 
+        error: 'Access denied',
+        details: 'You do not have permission to view this business'
+      });
     }
 
-    // Get linked tasks from linked projects
-    const linkedProjectIds = business.linkedProjects.map(lp => lp.projectId._id);
-    const linkedTasks = await Task.find({
-      projectId: { $in: linkedProjectIds },
-      status: { $ne: 'deleted' }
-    }).populate([
-      { path: 'assignedTo', select: 'firstName lastName email' },
-      { path: 'projectId', select: 'title' }
-    ]).sort({ updatedAt: -1 });
+    // Handle linkedProjects population separately to avoid errors
+    let populatedBusiness = { ...business };
+    
+    try {
+      if (business.linkedProjects && business.linkedProjects.length > 0) {
+        console.log('🔄 Populating linked projects...');
+        
+        // Populate linked projects safely
+        const businessWithProjects = await Business.findById(req.params.id)
+          .populate({
+            path: 'linkedProjects.projectId',
+            select: 'title description status priority progress createdAt updatedAt',
+            populate: {
+              path: 'assignedTo',
+              select: 'firstName lastName email avatar',
+              options: { strictPopulate: false }
+            },
+            options: { strictPopulate: false }
+          })
+          .lean()
+          .exec();
 
-    res.json({
-      ...business.toObject(),
-      linkedTasks
-    });
+        if (businessWithProjects?.linkedProjects) {
+          populatedBusiness.linkedProjects = businessWithProjects.linkedProjects;
+        }
+      }
+    } catch (projectError) {
+      console.warn('⚠️  Failed to populate linked projects:', projectError.message);
+      // Continue without linked projects data
+      populatedBusiness.linkedProjects = business.linkedProjects || [];
+    }
+
+    // Get linked tasks from linked projects (with error handling)
+    let linkedTasks = [];
+    try {
+      if (populatedBusiness.linkedProjects && populatedBusiness.linkedProjects.length > 0) {
+        console.log('🔄 Loading linked tasks...');
+        
+        const linkedProjectIds = populatedBusiness.linkedProjects
+          .map(lp => lp.projectId?._id || lp.projectId)
+          .filter(id => id); // Remove null/undefined values
+
+        if (linkedProjectIds.length > 0) {
+          linkedTasks = await Task.find({
+            projectId: { $in: linkedProjectIds },
+            status: { $ne: 'deleted' }
+          })
+          .populate([
+            { 
+              path: 'assignedTo', 
+              select: 'firstName lastName email avatar',
+              options: { strictPopulate: false }
+            },
+            { 
+              path: 'projectId', 
+              select: 'title',
+              options: { strictPopulate: false }
+            }
+          ])
+          .sort({ updatedAt: -1 })
+          .limit(50) // Limit to prevent performance issues
+          .lean()
+          .exec();
+        }
+      }
+    } catch (taskError) {
+      console.warn('⚠️  Failed to load linked tasks:', taskError.message);
+      linkedTasks = [];
+    }
+
+    console.log('✅ Business data loaded successfully');
+    console.log('📊 Linked tasks found:', linkedTasks.length);
+
+    // Return the business data
+    const responseData = {
+      ...populatedBusiness,
+      linkedTasks,
+      // Add some computed fields for frontend
+      computed: {
+        totalRevenue: populatedBusiness.products?.reduce((sum, p) => sum + (p.metrics?.revenue || 0), 0) || 0,
+        activeProducts: populatedBusiness.products?.filter(p => p.status === 'active').length || 0,
+        activeTeamMembers: populatedBusiness.teamMembers?.filter(m => m.status === 'active').length || 0,
+        linkedProjectsCount: populatedBusiness.linkedProjects?.length || 0
+      }
+    };
+
+    res.json(responseData);
 
   } catch (error) {
-    console.error('Error fetching business:', error);
-    res.status(500).json({ error: 'Failed to fetch business' });
+    console.error('💥 Error fetching business:', error);
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    
+    // Handle specific MongoDB errors
+    if (error.name === 'CastError') {
+      return res.status(400).json({ 
+        error: 'Invalid business ID format',
+        details: error.message
+      });
+    }
+    
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ 
+        error: 'Validation error',
+        details: error.message
+      });
+    }
+
+    if (error.name === 'MongoError' || error.name === 'MongooseError') {
+      return res.status(503).json({ 
+        error: 'Database error',
+        details: process.env.NODE_ENV === 'development' ? error.message : 'Database temporarily unavailable'
+      });
+    }
+    
+    // Send detailed error information in development
+    if (process.env.NODE_ENV === 'development') {
+      res.status(500).json({ 
+        error: 'Failed to fetch business',
+        details: error.message,
+        stack: error.stack,
+        name: error.name
+      });
+    } else {
+      res.status(500).json({ 
+        error: 'Internal server error',
+        message: 'An unexpected error occurred'
+      });
+    }
   }
 });
 
@@ -1207,6 +1375,598 @@ router.put('/:id/projects/:projectId/roadmap', authenticateUser, async (req, res
   } catch (error) {
     console.error('Error updating project roadmap:', error);
     res.status(500).json({ error: 'Failed to update project roadmap' });
+  }
+});
+
+// PUT /api/businesses/:id/projects/:projectId/phase - Update project business phase
+router.put('/:id/projects/:projectId/phase', authenticateUser, async (req, res) => {
+  try {
+    const { id, projectId } = req.params;
+    const { businessPhase, priority, role } = req.body;
+
+    console.log('🔄 Updating project phase for business:', id, 'project:', projectId);
+
+    // Check business access
+    const business = await Business.findOne({
+      _id: id,
+      $or: [
+        { ownerId: req.userId },
+        { 'teamMembers.userId': req.userId, 'teamMembers.status': 'active' }
+      ]
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found or access denied' });
+    }
+
+    // Check permissions
+    const userMember = business.teamMembers.find(member => 
+      member.userId?.toString() === req.userId
+    );
+    
+    const canManageProjects = business.ownerId.toString() === req.userId ||
+      (userMember && userMember.permissions.includes('manage_projects'));
+
+    if (!canManageProjects) {
+      return res.status(403).json({ error: 'Insufficient permissions to manage projects' });
+    }
+
+    // Find and update the linked project
+    const linkedProjectIndex = business.linkedProjects.findIndex(
+      lp => lp.projectId.toString() === projectId
+    );
+
+    if (linkedProjectIndex === -1) {
+      return res.status(404).json({ error: 'Project not linked to this business' });
+    }
+
+    // Update project phase and other properties
+    if (businessPhase) business.linkedProjects[linkedProjectIndex].businessPhase = businessPhase;
+    if (priority) business.linkedProjects[linkedProjectIndex].priority = priority;
+    if (role) business.linkedProjects[linkedProjectIndex].role = role;
+
+    await business.save();
+
+    console.log('✅ Project phase updated successfully');
+
+    res.json({
+      message: 'Project phase updated successfully',
+      linkedProject: business.linkedProjects[linkedProjectIndex]
+    });
+
+  } catch (error) {
+    console.error('❌ Error updating project phase:', error);
+    res.status(500).json({ error: 'Failed to update project phase' });
+  }
+});
+
+// GET /api/businesses/:id/team/chart - Team chart data
+router.get('/:id/team/chart', authenticateUser, async (req, res) => {
+  try {
+    const business = await Business.findById(req.params.id)
+      .populate('teamMembers.userId', 'firstName lastName email avatar');
+
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found' });
+    }
+
+    // Check permissions
+    const userMember = business.teamMembers.find(member => 
+      member.userId?.toString() === req.userId
+    );
+    
+    const canViewTeam = business.ownerId.toString() === req.userId ||
+      (userMember && userMember.permissions.includes('view_team_details'));
+
+    if (!canViewTeam) {
+      return res.status(403).json({ error: 'Insufficient permissions to view team details' });
+    }
+
+    // Generate chart data
+    const roles = {};
+    const levels = {};
+    const departments = {};
+    const statusCounts = {};
+
+    business.teamMembers.forEach(member => {
+      // Count by role
+      roles[member.role] = (roles[member.role] || 0) + 1;
+      
+      // Count by level
+      const level = member.level || 1;
+      levels[`Level ${level}`] = (levels[`Level ${level}`] || 0) + 1;
+      
+      // Count by department
+      const dept = member.department || 'General';
+      departments[dept] = (departments[dept] || 0) + 1;
+
+      // Count by status
+      statusCounts[member.status] = (statusCounts[member.status] || 0) + 1;
+    });
+
+    const chartData = {
+      roles: Object.entries(roles).map(([role, count]) => ({ role, count })),
+      levels: Object.entries(levels).map(([level, count]) => ({ level, count })),
+      departments: Object.entries(departments).map(([dept, count]) => ({ department: dept, count })),
+      status: Object.entries(statusCounts).map(([status, count]) => ({ status, count })),
+      summary: {
+        totalMembers: business.teamMembers.length,
+        activeMembers: statusCounts.active || 0,
+        pendingInvites: statusCounts.pending || 0,
+        averageLevel: business.teamMembers.length > 0 ? 
+          Math.round(business.teamMembers.reduce((sum, m) => sum + (m.level || 1), 0) / business.teamMembers.length * 10) / 10 : 0
+      }
+    };
+
+    console.log('✅ Team chart data generated successfully');
+
+    res.json(chartData);
+
+  } catch (error) {
+    console.error('Error generating team chart:', error);
+    res.status(500).json({ error: 'Failed to generate team chart data' });
+  }
+});
+
+// ============================================================================
+// BUSINESS-PROJECT LINKING (REVERSE OPERATIONS)
+// ============================================================================
+
+// GET /api/businesses/:id/available-projects - Get projects available to link
+router.get('/:id/available-projects', authenticateUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { search, category, status } = req.query;
+
+    console.log('🔗 Fetching available projects for business:', id);
+
+    // Check business access
+    const business = await Business.findOne({
+      _id: id,
+      $or: [
+        { ownerId: req.userId },
+        { 'teamMembers.userId': req.userId, 'teamMembers.status': 'active' }
+      ]
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found or access denied' });
+    }
+
+    // Build filter for user's projects
+    const filter = { userId: req.userId };
+    
+    if (category && category !== 'all') filter.category = category;
+    if (status && status !== 'all') filter.status = status;
+    
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Get user's projects
+    const projects = await Project.find(filter)
+      .select('title description category status priority createdAt linkedBusinesses')
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    // Get already linked project IDs
+    const linkedProjectIds = business.linkedProjects.map(lp => 
+      lp.projectId.toString ? lp.projectId.toString() : lp.projectId
+    );
+
+    // Filter out already linked projects
+    const availableProjects = projects.filter(project => 
+      !linkedProjectIds.includes(project._id.toString())
+    );
+
+    console.log(`✅ Found ${availableProjects.length} available projects for business`);
+
+    res.json({
+      businessId: id,
+      businessName: business.name,
+      availableProjects: availableProjects.map(project => ({
+        _id: project._id,
+        title: project.title,
+        description: project.description,
+        category: project.category,
+        status: project.status,
+        priority: project.priority,
+        createdAt: project.createdAt,
+        linkedBusinessCount: project.linkedBusinesses?.length || 0
+      }))
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching available projects for business:', error);
+    res.status(500).json({ error: 'Failed to fetch available projects' });
+  }
+});
+
+// POST /api/businesses/:id/link-project - Link project to business
+router.post('/:id/link-project', authenticateUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { 
+      projectId, 
+      role = 'related', 
+      priority = 'medium',
+      businessPhase = 'development',
+      expectedImpact = 'medium'
+    } = req.body;
+
+    console.log('🔗 Linking project to business:', projectId, '→', id);
+
+    if (!projectId) {
+      return res.status(400).json({ error: 'Project ID is required' });
+    }
+
+    // Check business access
+    const business = await Business.findOne({
+      _id: id,
+      $or: [
+        { ownerId: req.userId },
+        { 'teamMembers.userId': req.userId, 'teamMembers.status': 'active' }
+      ]
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found or access denied' });
+    }
+
+    // Check if user has access to the project
+    const project = await Project.findOne({ _id: projectId, userId: req.userId });
+    
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found or access denied' });
+    }
+
+    // Check if already linked
+    const existingBusinessLink = business.linkedProjects.find(
+      link => link.projectId.toString() === projectId
+    );
+
+    const existingProjectLink = project.linkedBusinesses?.find(
+      link => link.businessId.toString() === id
+    );
+
+    if (existingBusinessLink || existingProjectLink) {
+      return res.status(400).json({ error: 'Project is already linked to this business' });
+    }
+
+    // Add link to business
+    business.linkedProjects.push({
+      projectId,
+      role,
+      priority,
+      businessPhase,
+      expectedImpact,
+      linkedBy: req.userId,
+      linkedAt: new Date()
+    });
+
+    // Add reverse link to project (if project model supports linkedBusinesses)
+    if (!project.linkedBusinesses) {
+      project.linkedBusinesses = [];
+    }
+
+    project.linkedBusinesses.push({
+      businessId: id,
+      role,
+      priority,
+      businessPhase,
+      expectedImpact,
+      linkedBy: req.userId,
+      linkedAt: new Date()
+    });
+
+    // Save both models
+    await Promise.all([business.save(), project.save()]);
+
+    console.log('✅ Project linked to business successfully');
+
+    res.json({
+      message: 'Project linked to business successfully',
+      link: {
+        projectId,
+        projectTitle: project.title,
+        businessId: id,
+        businessName: business.name,
+        role,
+        priority,
+        businessPhase,
+        expectedImpact
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error linking project to business:', error);
+    
+    // Handle specific error cases
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ 
+        error: 'Validation error', 
+        details: Object.values(error.errors).map(err => err.message)
+      });
+    }
+    
+    res.status(500).json({ error: 'Failed to link project to business' });
+  }
+});
+
+// DELETE /api/businesses/:id/unlink-project/:projectId - Unlink project from business
+router.delete('/:id/unlink-project/:projectId', authenticateUser, async (req, res) => {
+  try {
+    const { id, projectId } = req.params;
+
+    console.log('🔗 Unlinking project from business:', projectId, '→', id);
+
+    // Check business access
+    const business = await Business.findOne({
+      _id: id,
+      $or: [
+        { ownerId: req.userId },
+        { 'teamMembers.userId': req.userId, 'teamMembers.status': 'active' }
+      ]
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found or access denied' });
+    }
+
+    // Check permissions
+    const userMember = business.teamMembers.find(member => 
+      member.userId?.toString() === req.userId
+    );
+    
+    const canManageProjects = business.ownerId.toString() === req.userId ||
+      (userMember && userMember.permissions.includes('manage_projects'));
+
+    if (!canManageProjects) {
+      return res.status(403).json({ error: 'Insufficient permissions to unlink projects' });
+    }
+
+    // Remove link from business
+    const linkIndex = business.linkedProjects.findIndex(
+      link => link.projectId.toString() === projectId
+    );
+
+    if (linkIndex === -1) {
+      return res.status(404).json({ error: 'Project is not linked to this business' });
+    }
+
+    business.linkedProjects.splice(linkIndex, 1);
+    await business.save();
+
+    // Remove reverse link from project
+    const project = await Project.findById(projectId);
+    if (project && project.linkedBusinesses) {
+      const businessLinkIndex = project.linkedBusinesses.findIndex(
+        link => link.businessId.toString() === id
+      );
+
+      if (businessLinkIndex !== -1) {
+        project.linkedBusinesses.splice(businessLinkIndex, 1);
+        await project.save();
+      }
+    }
+
+    console.log('✅ Project unlinked from business successfully');
+
+    res.json({
+      message: 'Project unlinked from business successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Error unlinking project from business:', error);
+    res.status(500).json({ error: 'Failed to unlink project from business' });
+  }
+});
+
+// GET /api/businesses/:id/linked-projects - Get all linked projects with details
+router.get('/:id/linked-projects', authenticateUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { role, priority, businessPhase } = req.query;
+
+    console.log('🔗 Fetching linked projects for business:', id);
+    console.log('🔍 User ID:', req.userId);
+    console.log('📊 Query filters:', { role, priority, businessPhase });
+
+    // Validate business ID
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      console.error('❌ Invalid business ID format:', id);
+      return res.status(400).json({ error: 'Invalid business ID format' });
+    }
+
+    // Find business with better error handling
+    const business = await Business.findOne({
+      _id: id,
+      $or: [
+        { ownerId: req.userId },
+        { 'teamMembers.userId': req.userId, 'teamMembers.status': 'active' }
+      ]
+    }).lean(); // Use lean for better performance
+
+    if (!business) {
+      console.error('❌ Business not found or access denied for business:', id, 'user:', req.userId);
+      return res.status(404).json({ error: 'Business not found or access denied' });
+    }
+
+    console.log('✅ Business found:', business.name);
+    console.log('📋 Raw linked projects count:', business.linkedProjects?.length || 0);
+
+    // Handle case where linkedProjects might not exist or be empty
+    if (!business.linkedProjects || business.linkedProjects.length === 0) {
+      console.log('ℹ️  No linked projects found, returning empty result');
+      return res.json({
+        businessId: id,
+        businessName: business.name,
+        linkedProjects: [],
+        summary: {
+          total: 0,
+          byRole: { primary: 0, supporting: 0, related: 0, dependency: 0 },
+          byPriority: { critical: 0, high: 0, medium: 0, low: 0 },
+          byPhase: { research: 0, development: 0, launch: 0, growth: 0, maintenance: 0 }
+        }
+      });
+    }
+
+    // Get valid project IDs (filter out any invalid references)
+    const validProjectIds = business.linkedProjects
+      .map(lp => lp.projectId)
+      .filter(id => id && mongoose.Types.ObjectId.isValid(id));
+
+    console.log('🔍 Valid project IDs to fetch:', validProjectIds.length);
+
+    // Fetch projects safely
+    let projects = [];
+    if (validProjectIds.length > 0) {
+      try {
+        projects = await Project.find({
+          _id: { $in: validProjectIds }
+        })
+        .populate({
+          path: 'userId',
+          select: 'firstName lastName email',
+          options: { strictPopulate: false }
+        })
+        .select('title description status priority progress createdAt updatedAt category userId')
+        .lean();
+
+        console.log('📊 Projects fetched successfully:', projects.length);
+      } catch (projectError) {
+        console.error('⚠️  Error fetching projects:', projectError.message);
+        // Continue with empty projects array
+        projects = [];
+      }
+    }
+
+    // Create a map for quick project lookup
+    const projectsMap = new Map();
+    projects.forEach(project => {
+      projectsMap.set(project._id.toString(), project);
+    });
+
+    // Process linked projects with safety checks
+    let linkedProjects = business.linkedProjects
+      .map(linkedProject => {
+        const projectId = linkedProject.projectId?.toString();
+        const project = projectsMap.get(projectId);
+
+        if (!project) {
+          console.warn(`⚠️  Project not found or inaccessible: ${projectId}`);
+          return null; // This will be filtered out
+        }
+
+        return {
+          linkId: linkedProject._id,
+          businessId: id,
+          businessName: business.name,
+          projectId: project._id,
+          projectTitle: project.title,
+          projectDescription: project.description,
+          projectStatus: project.status,
+          projectPriority: project.priority,
+          projectProgress: project.progress || 0,
+          projectCategory: project.category,
+          projectOwner: project.userId,
+          linkDetails: {
+            role: linkedProject.role || 'related',
+            priority: linkedProject.priority || 'medium',
+            businessPhase: linkedProject.businessPhase || 'development',
+            expectedImpact: linkedProject.expectedImpact || 'medium',
+            linkedAt: linkedProject.linkedAt || linkedProject.createdAt || new Date(),
+            linkedBy: linkedProject.linkedBy
+          },
+          createdAt: project.createdAt,
+          updatedAt: project.updatedAt
+        };
+      })
+      .filter(project => project !== null); // Remove null entries
+
+    console.log('✅ Processed linked projects:', linkedProjects.length);
+
+    // Apply filters
+    if (role && role !== 'all') {
+      linkedProjects = linkedProjects.filter(lp => lp.linkDetails.role === role);
+      console.log(`🔍 Filtered by role '${role}':`, linkedProjects.length);
+    }
+
+    if (priority && priority !== 'all') {
+      linkedProjects = linkedProjects.filter(lp => lp.linkDetails.priority === priority);
+      console.log(`🔍 Filtered by priority '${priority}':`, linkedProjects.length);
+    }
+
+    if (businessPhase && businessPhase !== 'all') {
+      linkedProjects = linkedProjects.filter(lp => lp.linkDetails.businessPhase === businessPhase);
+      console.log(`🔍 Filtered by phase '${businessPhase}':`, linkedProjects.length);
+    }
+
+    // Calculate summary statistics
+    const summary = {
+      total: linkedProjects.length,
+      byRole: {
+        primary: linkedProjects.filter(p => p.linkDetails.role === 'primary').length,
+        supporting: linkedProjects.filter(p => p.linkDetails.role === 'supporting').length,
+        related: linkedProjects.filter(p => p.linkDetails.role === 'related').length,
+        dependency: linkedProjects.filter(p => p.linkDetails.role === 'dependency').length
+      },
+      byPriority: {
+        critical: linkedProjects.filter(p => p.linkDetails.priority === 'critical').length,
+        high: linkedProjects.filter(p => p.linkDetails.priority === 'high').length,
+        medium: linkedProjects.filter(p => p.linkDetails.priority === 'medium').length,
+        low: linkedProjects.filter(p => p.linkDetails.priority === 'low').length
+      },
+      byPhase: {
+        research: linkedProjects.filter(p => p.linkDetails.businessPhase === 'research').length,
+        development: linkedProjects.filter(p => p.linkDetails.businessPhase === 'development').length,
+        launch: linkedProjects.filter(p => p.linkDetails.businessPhase === 'launch').length,
+        growth: linkedProjects.filter(p => p.linkDetails.businessPhase === 'growth').length,
+        maintenance: linkedProjects.filter(p => p.linkDetails.businessPhase === 'maintenance').length
+      }
+    };
+
+    console.log('📊 Summary:', summary);
+    console.log(`✅ Found ${linkedProjects.length} linked projects for business`);
+
+    const response = {
+      businessId: id,
+      businessName: business.name,
+      linkedProjects,
+      summary
+    };
+
+    res.json(response);
+
+  } catch (error) {
+    console.error('❌ Error fetching linked projects:', error);
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    
+    // Return more specific error information
+    if (error.name === 'CastError') {
+      return res.status(400).json({ 
+        error: 'Invalid ID format',
+        details: error.message
+      });
+    }
+    
+    if (error.name === 'ValidationError') {
+      return res.status(400).json({ 
+        error: 'Validation error',
+        details: error.message
+      });
+    }
+
+    // Generic error response
+    res.status(500).json({ 
+      error: 'Failed to fetch linked projects',
+      details: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+    });
   }
 });
 

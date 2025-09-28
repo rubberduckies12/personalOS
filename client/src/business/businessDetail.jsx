@@ -63,9 +63,18 @@ const BusinessDetail = () => {
     try {
       setLoading(true);
       
+      // Validate business ID format
+      if (!businessId || businessId.length !== 24) {
+        console.error('Invalid business ID:', businessId);
+        navigate('/business');
+        return;
+      }
+      
+      console.log('🔍 Loading business data for ID:', businessId);
+      
       // Add timeout to prevent infinite loading
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Request timeout')), 10000)
+        setTimeout(() => reject(new Error('Request timeout')), 15000)
       );
 
       const fetchPromise = Promise.all([
@@ -75,23 +84,48 @@ const BusinessDetail = () => {
 
       const [businessRes, analyticsRes] = await Promise.race([fetchPromise, timeoutPromise]);
 
+      console.log('📊 Business response status:', businessRes.status);
+
       if (businessRes.ok) {
         const businessData = await businessRes.json();
         setBusiness(businessData);
-        console.log('Loaded business data:', businessData.name); // Debug log
-      } else if (businessRes.status === 404) {
-        console.error('Business not found');
-        navigate('/business');
-        return;
-      } else if (businessRes.status === 403) {
-        console.error('Access denied to business');
-        navigate('/business');
-        return;
+        console.log('✅ Loaded business data:', businessData.name);
       } else {
-        throw new Error(`HTTP ${businessRes.status}: ${businessRes.statusText}`);
+        // Handle specific error cases
+        const errorData = await businessRes.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('❌ Business API error:', businessRes.status, errorData);
+        
+        if (businessRes.status === 404) {
+          console.error('Business not found');
+          navigate('/business');
+          return;
+        } else if (businessRes.status === 403) {
+          console.error('Access denied to business');
+          navigate('/business');
+          return;
+        } else if (businessRes.status === 500) {
+          console.error('Server error loading business:', errorData);
+          // Show error message but don't redirect
+          setBusiness({
+            _id: businessId,
+            name: 'Error Loading Business',
+            description: 'There was an error loading this business. Please check the console for details.',
+            status: 'unknown',
+            industry: 'unknown',
+            stage: 'unknown',
+            createdAt: new Date(),
+            products: [],
+            teamMembers: [],
+            linkedProjects: [],
+            metrics: {},
+            error: errorData.details || errorData.error || 'Server error'
+          });
+        } else {
+          throw new Error(`HTTP ${businessRes.status}: ${businessRes.statusText}`);
+        }
       }
 
-      if (analyticsRes.ok) {
+      if (analyticsRes && analyticsRes.ok) {
         const analyticsData = await analyticsRes.json();
         setAnalytics(analyticsData);
       } else {
@@ -104,24 +138,24 @@ const BusinessDetail = () => {
       }
 
     } catch (error) {
-      console.error('Error loading business data:', error);
+      console.error('💥 Error loading business data:', error);
+      console.error('Error stack:', error.stack);
       
       // Set fallback data instead of navigating away
-      if (!business) {
-        setBusiness({
-          _id: businessId,
-          name: 'Loading...',
-          description: 'Loading business information...',
-          status: 'active',
-          industry: 'unknown',
-          stage: 'unknown',
-          createdAt: new Date(),
-          products: [],
-          teamMembers: [],
-          linkedProjects: [],
-          metrics: {}
-        });
-      }
+      setBusiness({
+        _id: businessId,
+        name: 'Error Loading Business',
+        description: `Failed to load business data: ${error.message}`,
+        status: 'unknown',
+        industry: 'unknown',
+        stage: 'unknown',
+        createdAt: new Date(),
+        products: [],
+        teamMembers: [],
+        linkedProjects: [],
+        metrics: {},
+        error: error.message
+      });
       
       setAnalytics({
         projects: { active: 0, completed: 0 },

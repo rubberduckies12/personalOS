@@ -178,7 +178,43 @@ const projectSchema = new mongoose.Schema({
   archived: {
     type: Boolean,
     default: false
-  }
+  },
+  linkedBusinesses: [{
+    businessId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Business',
+      required: true
+    },
+    role: {
+      type: String,
+      enum: ['primary', 'supporting', 'related', 'dependency'],
+      default: 'related'
+    },
+    priority: {
+      type: String,
+      enum: ['critical', 'high', 'medium', 'low'],
+      default: 'medium'
+    },
+    businessPhase: {
+      type: String,
+      enum: ['research', 'development', 'launch', 'growth', 'maintenance'],
+      default: 'development'
+    },
+    expectedImpact: {
+      type: String,
+      enum: ['high', 'medium', 'low'],
+      default: 'medium'
+    },
+    linkedAt: {
+      type: Date,
+      default: Date.now
+    },
+    linkedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    }
+  }],
 }, {
   timestamps: true,
   toJSON: { virtuals: true },
@@ -195,6 +231,7 @@ const projectSchema = new mongoose.Schema({
 // Optimized compound indexes for efficient queries
 projectSchema.index({ userId: 1, status: 1, category: 1 });
 projectSchema.index({ userId: 1, createdAt: -1 });
+projectSchema.index({ 'linkedBusinesses.businessId': 1 });
 
 projectSchema.virtual('completionPercentage').get(function() {
   if (!this.milestones || this.milestones.length === 0) return 0;
@@ -229,6 +266,10 @@ projectSchema.virtual('nextMilestone').get(function() {
   return this.milestones
     .filter(milestone => !milestone.completed)
     .sort((a, b) => a.order - b.order)[0] || null;
+});
+
+projectSchema.virtual('linkedBusinessCount').get(function() {
+  return this.linkedBusinesses ? this.linkedBusinesses.length : 0;
 });
 
 projectSchema.pre('save', function(next) {

@@ -3,6 +3,7 @@ const router = express.Router();
 const Project = require('../models/projectsModel');
 const Task = require('../models/tasksModel');
 const Goal = require('../models/goalsModel');
+const Business = require('../models/businessModel');
 const { authenticateUser } = require('../middleware/auth');
 
 // Helper function to calculate project progress based on milestones
@@ -563,6 +564,270 @@ router.post('/:id/duplicate', authenticateUser, async (req, res) => {
   } catch (error) {
     console.error('❌ Error duplicating project:', error);
     res.status(500).json({ error: 'Failed to duplicate project' });
+  }
+});
+
+// POST /api/projects/:id/link-business - Link project to business
+router.post('/:id/link-business', authenticateUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { 
+      businessId, 
+      role = 'related', 
+      priority = 'medium',
+      businessPhase = 'development',
+      expectedImpact = 'medium'
+    } = req.body;
+
+    console.log('🔗 Linking project to business:', id, '→', businessId);
+
+    // Validate inputs
+    if (!businessId) {
+      return res.status(400).json({ error: 'Business ID is required' });
+    }
+
+    // Find the project
+    const project = await Project.findOne({ _id: id, userId: req.userId });
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // Check if user has access to the business
+    const business = await Business.findOne({
+      _id: businessId,
+      $or: [
+        { ownerId: req.userId },
+        { 'teamMembers.userId': req.userId, 'teamMembers.status': 'active' }
+      ]
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found or access denied' });
+    }
+
+    // Check if already linked
+    const existingLink = project.linkedBusinesses.find(
+      link => link.businessId.toString() === businessId
+    );
+
+    if (existingLink) {
+      return res.status(400).json({ error: 'Project is already linked to this business' });
+    }
+
+    // Add link to project
+    project.linkedBusinesses.push({
+      businessId,
+      role,
+      priority,
+      businessPhase,
+      expectedImpact,
+      linkedBy: req.userId,
+      linkedAt: new Date()
+    });
+
+    await project.save();
+
+    // Add reverse link to business
+    const existingBusinessLink = business.linkedProjects.find(
+      link => link.projectId.toString() === id
+    );
+
+    if (!existingBusinessLink) {
+      business.linkedProjects.push({
+        projectId: id,
+        role,
+        priority,
+        businessPhase,
+        expectedImpact,
+        linkedBy: req.userId,
+        linkedAt: new Date()
+      });
+
+      await business.save();
+    }
+
+    console.log('✅ Project linked to business successfully');
+
+    res.json({
+      message: 'Project linked to business successfully',
+      link: {
+        businessId,
+        businessName: business.name,
+        role,
+        priority,
+        businessPhase,
+        expectedImpact
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error linking project to business:', error);
+    res.status(500).json({ error: 'Failed to link project to business' });
+  }
+});
+
+// DELETE /api/projects/:id/unlink-business/:businessId - Unlink project from business
+router.delete('/:id/unlink-business/:businessId', authenticateUser, async (req, res) => {
+  try {
+    const { id, businessId } = req.params;
+
+    console.log('🔗 Unlinking project from business:', id, '→', businessId);
+
+    // Find the project
+    const project = await Project.findOne({ _id: id, userId: req.userId });
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    // Remove link from project
+    const linkIndex = project.linkedBusinesses.findIndex(
+      link => link.businessId.toString() === businessId
+    );
+
+    if (linkIndex === -1) {
+      return res.status(404).json({ error: 'Project is not linked to this business' });
+    }
+
+    project.linkedBusinesses.splice(linkIndex, 1);
+    await project.save();
+
+    // Remove reverse link from business
+    const business = await Business.findById(businessId);
+    if (business) {
+      const businessLinkIndex = business.linkedProjects.findIndex(
+        link => link.projectId.toString() === id
+      );
+
+      if (businessLinkIndex !== -1) {
+        business.linkedProjects.splice(businessLinkIndex, 1);
+        await business.save();
+      }
+    }
+
+    console.log('✅ Project unlinked from business successfully');
+
+    res.json({
+      message: 'Project unlinked from business successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Error unlinking project from business:', error);
+    res.status(500).json({ error: 'Failed to unlink project from business' });
+  }
+});
+
+// GET /api/projects/:id/businesses - Get businesses linked to project
+router.get('/:id/businesses', authenticateUser, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log('🔗 Fetching businesses for project:', id);
+
+    const project = await Project.findOne({ _id: id, userId: req.userId })
+      .populate({
+        path: 'linkedBusinesses.businessId',
+        select: 'name description industry status ownerId',
+        populate: {
+          path: 'ownerId',
+          select: 'firstName lastName email'
+        }
+      });
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const linkedBusinesses = project.linkedBusinesses.map(link => ({
+      businessId: link.businessId._id,
+      name: link.businessId.name,
+      description: link.businessId.description,
+      industry: link.businessId.industry,
+      status: link.businessId.status,
+      owner: link.businessId.ownerId,
+      role: link.role,
+      priority: link.priority,
+      businessPhase: link.businessPhase,
+      expectedImpact: link.expectedImpact,
+      linkedAt: link.linkedAt
+    }));
+
+    res.json({
+      projectId: id,
+      projectTitle: project.title,
+      linkedBusinesses
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching project businesses:', error);
+    res.status(500).json({ error: 'Failed to fetch project businesses' });
+  }
+});
+
+// GET /api/projects/available-for-business/:businessId - Get projects available to link to business
+router.get('/available-for-business/:businessId', authenticateUser, async (req, res) => {
+  try {
+    const { businessId } = req.params;
+    const { search, category, status } = req.query;
+
+    console.log('🔗 Fetching available projects for business:', businessId);
+
+    // Check if user has access to the business
+    const business = await Business.findOne({
+      _id: businessId,
+      $or: [
+        { ownerId: req.userId },
+        { 'teamMembers.userId': req.userId, 'teamMembers.status': 'active' }
+      ]
+    });
+
+    if (!business) {
+      return res.status(404).json({ error: 'Business not found or access denied' });
+    }
+
+    // Build filter for projects
+    const filter = { userId: req.userId };
+    
+    if (category && category !== 'all') filter.category = category;
+    if (status && status !== 'all') filter.status = status;
+    
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Get all user's projects
+    const projects = await Project.find(filter)
+      .select('title description category status priority createdAt linkedBusinesses')
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    // Filter out already linked projects
+    const availableProjects = projects.filter(project => {
+      return !project.linkedBusinesses.some(
+        link => link.businessId.toString() === businessId
+      );
+    });
+
+    res.json({
+      businessId,
+      businessName: business.name,
+      availableProjects: availableProjects.map(project => ({
+        _id: project._id,
+        title: project.title,
+        description: project.description,
+        category: project.category,
+        status: project.status,
+        priority: project.priority,
+        createdAt: project.createdAt,
+        linkedBusinessCount: project.linkedBusinesses?.length || 0
+      }))
+    });
+
+  } catch (error) {
+    console.error('❌ Error fetching available projects:', error);
+    res.status(500).json({ error: 'Failed to fetch available projects' });
   }
 });
 
