@@ -8,6 +8,7 @@ import Dashboard from './home/dashboard';
 import Finances from './finance/finances';
 import Goals from './goals/goals.jsx';
 import Projects from './projects/projects';
+import BusinessOverview from './business/businessOverview';
 
 // Enhanced Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -115,6 +116,16 @@ const SkillsPage = () => (
   </div>
 );
 
+// Placeholder for Business Create page
+const BusinessCreatePage = () => (
+  <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
+    <div className="bg-white rounded-2xl shadow-xl p-8">
+      <h2 className="text-2xl font-bold text-gray-900 mb-4">Create Business</h2>
+      <p className="text-gray-600">Business creation form coming soon...</p>
+    </div>
+  </div>
+);
+
 // Main App Component
 const App = () => {
   return (
@@ -130,6 +141,23 @@ const App = () => {
         <Route path="/dashboard" element={
           <ProtectedRoute>
             <Dashboard />
+          </ProtectedRoute>
+        } />
+        
+        {/* Business Routes - NEW */}
+        <Route path="/business" element={
+          <ProtectedRoute>
+            <BusinessOverview />
+          </ProtectedRoute>
+        } />
+        <Route path="/business/:businessId" element={
+          <ProtectedRoute>
+            <BusinessOverview />
+          </ProtectedRoute>
+        } />
+        <Route path="/business/create" element={
+          <ProtectedRoute>
+            <BusinessCreatePage />
           </ProtectedRoute>
         } />
         

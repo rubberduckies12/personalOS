@@ -106,7 +106,7 @@ const productSchema = new mongoose.Schema({
   }
 }, { _id: true, timestamps: true });
 
-// Team Member Schema for inviting users - FIXED EMAIL REQUIREMENT
+// Team Member Schema for inviting users - ENHANCED
 const teamMemberSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -128,14 +128,72 @@ const teamMemberSchema = new mongoose.Schema({
     enum: ['owner', 'admin', 'manager', 'member', 'viewer', 'consultant'],
     default: 'member'
   },
+  // NEW: Job details
+  jobTitle: {
+    type: String,
+    required: true,
+    trim: true,
+    maxlength: 100,
+    default: 'Team Member'
+  },
+  level: {
+    type: Number,
+    required: true,
+    min: 1,
+    max: 5,
+    default: 1
+  },
+  responsibilities: {
+    type: String,
+    trim: true,
+    maxlength: 1000,
+    default: ''
+  },
+  // NEW: Employment details
+  employmentType: {
+    type: String,
+    enum: ['full-time', 'part-time', 'contract', 'freelance', 'intern', 'volunteer'],
+    default: 'full-time'
+  },
+  department: {
+    type: String,
+    trim: true,
+    maxlength: 100,
+    default: ''
+  },
+  startDate: {
+    type: Date
+  },
+  // NEW: Compensation (optional)
+  compensation: {
+    salary: {
+      type: Number,
+      min: 0
+    },
+    currency: {
+      type: String,
+      enum: ['GBP', 'USD', 'EUR', 'CAD', 'AUD'],
+      default: 'GBP'
+    },
+    payFrequency: {
+      type: String,
+      enum: ['hourly', 'weekly', 'monthly', 'yearly'],
+      default: 'yearly'
+    },
+    isPublic: {
+      type: Boolean,
+      default: false
+    }
+  },
   permissions: [{
     type: String,
     enum: [
       'view_business', 'edit_business', 'delete_business',
       'manage_products', 'view_products',
       'manage_projects', 'view_projects',
-      'manage_team', 'invite_users',
-      'view_analytics', 'manage_integrations'
+      'manage_team', 'invite_users', 'view_team_details',
+      'view_analytics', 'manage_integrations',
+      'manage_finances', 'view_finances'
     ]
   }],
   status: {
@@ -164,6 +222,16 @@ const teamMemberSchema = new mongoose.Schema({
     default: function() {
       return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
     }
+  },
+  // NEW: Performance tracking
+  lastActiveAt: {
+    type: Date,
+    default: Date.now
+  },
+  notes: {
+    type: String,
+    trim: true,
+    maxlength: 500
   }
 }, { _id: true, timestamps: true });
 

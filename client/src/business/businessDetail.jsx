@@ -7,7 +7,7 @@ import {
   UsersIcon,
   CogIcon,
   ArrowLeftIcon,
-  TrendingUpIcon,
+  ArrowTrendingUpIcon,
   BanknotesIcon,
   CheckCircleIcon,
   ExclamationTriangleIcon,
@@ -55,7 +55,7 @@ const BusinessDetail = () => {
   // Format currency
   const formatCurrency = (amount, currency = 'GBP') => {
     const symbols = { USD: '$', GBP: '£', EUR: '€' };
-    return `${symbols[currency] || '£'}${parseFloat(amount || 0).toFixed(2)}`;
+    return `${parseFloat(amount || 0).toFixed(2)}`;
   };
 
   // Load business data
@@ -63,20 +63,32 @@ const BusinessDetail = () => {
     try {
       setLoading(true);
       
-      const [businessRes, analyticsRes] = await Promise.all([
+      // Add timeout to prevent infinite loading
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Request timeout')), 10000)
+      );
+
+      const fetchPromise = Promise.all([
         fetch(`http://localhost:5001/api/businesses/${businessId}`, createFetchOptions()),
         fetch(`http://localhost:5001/api/businesses/${businessId}/analytics`, createFetchOptions()).catch(() => ({ ok: false }))
       ]);
 
+      const [businessRes, analyticsRes] = await Promise.race([fetchPromise, timeoutPromise]);
+
       if (businessRes.ok) {
         const businessData = await businessRes.json();
         setBusiness(businessData);
+        console.log('Loaded business data:', businessData.name); // Debug log
       } else if (businessRes.status === 404) {
+        console.error('Business not found');
         navigate('/business');
         return;
       } else if (businessRes.status === 403) {
+        console.error('Access denied to business');
         navigate('/business');
         return;
+      } else {
+        throw new Error(`HTTP ${businessRes.status}: ${businessRes.statusText}`);
       }
 
       if (analyticsRes.ok) {
@@ -93,7 +105,24 @@ const BusinessDetail = () => {
 
     } catch (error) {
       console.error('Error loading business data:', error);
-      // Don't navigate away on error, just show with limited data
+      
+      // Set fallback data instead of navigating away
+      if (!business) {
+        setBusiness({
+          _id: businessId,
+          name: 'Loading...',
+          description: 'Loading business information...',
+          status: 'active',
+          industry: 'unknown',
+          stage: 'unknown',
+          createdAt: new Date(),
+          products: [],
+          teamMembers: [],
+          linkedProjects: [],
+          metrics: {}
+        });
+      }
+      
       setAnalytics({
         projects: { active: 0, completed: 0 },
         tasks: { total: 0 },
@@ -106,9 +135,13 @@ const BusinessDetail = () => {
 
   useEffect(() => {
     if (businessId) {
+      console.log('Loading business data for ID:', businessId); // Debug log
       loadBusinessData();
+    } else {
+      console.error('No businessId provided');
+      navigate('/business');
     }
-  }, [businessId]);
+  }, [businessId]); // Remove navigate from dependencies to prevent loops
 
   // Navigation tabs
   const tabs = [
@@ -120,7 +153,7 @@ const BusinessDetail = () => {
 
   // Get tab-specific header content
   const getHeaderContent = () => {
-    if (!business) {
+    if (!business || business.name === 'Loading...') {
       return {
         title: 'Business Dashboard',
         subtitle: 'Loading business information...'
@@ -156,12 +189,15 @@ const BusinessDetail = () => {
     }
   };
 
-  // Individual Business Overview Component (NOT the general BusinessOverview)
+  // Individual Business Overview Component
   const renderIndividualBusinessOverview = () => {
-    if (!business) {
+    if (!business || business.name === 'Loading...') {
       return (
         <div className="flex items-center justify-center py-20">
-          <div className="animate-spin w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full"></div>
+          <div className="text-center">
+            <div className="animate-spin w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading business overview...</p>
+          </div>
         </div>
       );
     }
@@ -259,18 +295,18 @@ const BusinessDetail = () => {
                   <BanknotesIcon className="w-6 h-6 text-white" />
                 </div>
                 <div className="flex items-center space-x-1">
-                  <TrendingUpIcon className="w-5 h-5 text-green-600" />
+                  <ArrowTrendingUpIcon className="w-5 h-5 text-green-600" />
                   <span className="text-xs text-green-600 font-medium">
                     {((totalRevenue / (business.metrics?.targetRevenue?.annual || 1)) * 100).toFixed(0)}%
                   </span>
                 </div>
               </div>
               <h3 className="text-lg font-semibold text-gray-900 mb-1">Total Revenue</h3>
-              <p className="text-3xl font-bold text-green-600">{formatCurrency(totalRevenue, filters.currency)}</p>
+              <p className="text-3xl font-bold text-green-600">£{formatCurrency(totalRevenue, filters.currency)}</p>
               <div className="mt-3 space-y-1">
                 <div className="flex justify-between text-sm text-gray-600">
                   <span>Target:</span>
-                  <span className="font-medium">{formatCurrency(business.metrics?.targetRevenue?.annual || 0, filters.currency)}</span>
+                  <span className="font-medium">£{formatCurrency(business.metrics?.targetRevenue?.annual || 0, filters.currency)}</span>
                 </div>
                 <div className="flex justify-between text-sm text-gray-600">
                   <span>Products:</span>
@@ -340,7 +376,7 @@ const BusinessDetail = () => {
                   <CubeIcon className="w-6 h-6 text-white" />
                 </div>
                 <div className="flex items-center space-x-1">
-                  <TrendingUpIcon className="w-5 h-5 text-emerald-600" />
+                  <ArrowTrendingUpIcon className="w-5 h-5 text-emerald-600" />
                   <span className="text-xs text-emerald-600 font-medium">
                     {totalProducts > 0 ? ((activeProducts / totalProducts) * 100).toFixed(0) : 0}% active
                   </span>
@@ -361,214 +397,63 @@ const BusinessDetail = () => {
             </div>
           </div>
 
-          {/* Business Health & Analytics */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            {/* Health Score Breakdown */}
-            <div className="bg-white rounded-xl shadow-sm p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-6 flex items-center">
-                <CheckCircleIcon className="w-5 h-5 mr-2 text-emerald-600" />
-                Business Health Breakdown
-              </h3>
-              
-              <div className="space-y-4">
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Revenue Progress</span>
-                    <span>{((totalRevenue / (business.metrics?.targetRevenue?.annual || 1)) * 100).toFixed(0)}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="h-2 rounded-full bg-gradient-to-r from-green-400 to-green-600"
-                      style={{ width: `${Math.min((totalRevenue / (business.metrics?.targetRevenue?.annual || 1)) * 100, 100)}%` }}
-                    ></div>
-                  </div>
+          {/* Quick Actions */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <button
+              onClick={() => setActiveTab('projects')}
+              className="p-6 bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-200 text-left"
+            >
+              <div className="flex items-center space-x-3 mb-3">
+                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                  <FolderIcon className="w-6 h-6 text-purple-600" />
                 </div>
-
                 <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Product Success</span>
-                    <span>{totalProducts > 0 ? ((activeProducts / totalProducts) * 100).toFixed(0) : 0}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="h-2 rounded-full bg-gradient-to-r from-emerald-400 to-emerald-600"
-                      style={{ width: `${totalProducts > 0 ? (activeProducts / totalProducts) * 100 : 0}%` }}
-                    ></div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Team Growth</span>
-                    <span>{((activeTeamMembers / (business.metrics?.employeeCount?.target || 1)) * 100).toFixed(0)}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="h-2 rounded-full bg-gradient-to-r from-blue-400 to-blue-600"
-                      style={{ width: `${Math.min((activeTeamMembers / (business.metrics?.employeeCount?.target || 1)) * 100, 100)}%` }}
-                    ></div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Project Integration</span>
-                    <span>{Math.min(linkedProjects * 20, 100)}%</span>
-                  </div>
-                  <div className="w-full bg-gray-200 rounded-full h-2">
-                    <div
-                      className="h-2 rounded-full bg-gradient-to-r from-purple-400 to-purple-600"
-                      style={{ width: `${Math.min(linkedProjects * 20, 100)}%` }}
-                    ></div>
-                  </div>
+                  <h3 className="text-lg font-semibold text-gray-900">View Projects</h3>
+                  <p className="text-sm text-gray-500">{linkedProjects} linked projects</p>
                 </div>
               </div>
-            </div>
+              <p className="text-sm text-gray-600">
+                Manage project roadmap and track progress across all linked projects.
+              </p>
+            </button>
 
-            {/* Recent Activity */}
-            <div className="bg-white rounded-xl shadow-sm p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                <InformationCircleIcon className="w-5 h-5 mr-2 text-emerald-600" />
-                Recent Activity
-              </h3>
-              
-              <div className="space-y-3">
-                {analytics?.timeline?.recentActivity?.slice(0, 6).map((activity, index) => (
-                  <div key={index} className="flex items-center space-x-3 p-2 bg-gray-50 rounded-lg">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                      activity.type === 'project' ? 'bg-purple-100' : 'bg-blue-100'
-                    }`}>
-                      {activity.type === 'project' ? (
-                        <FolderIcon className={`w-4 h-4 ${activity.type === 'project' ? 'text-purple-600' : 'text-blue-600'}`} />
-                      ) : (
-                        <CheckCircleIcon className="w-4 h-4 text-blue-600" />
-                      )}
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-900">
-                        {activity.action === 'completed' ? 'Completed' : 'Updated'} {activity.type}
-                      </p>
-                      <p className="text-xs text-gray-500">{activity.item}</p>
-                    </div>
-                    <div className="text-xs text-gray-400">
-                      {new Date(activity.date).toLocaleDateString()}
-                    </div>
-                  </div>
-                ))}
-                {(!analytics?.timeline?.recentActivity || analytics.timeline.recentActivity.length === 0) && (
-                  <div className="text-center py-8 text-gray-500">
-                    <InformationCircleIcon className="w-12 h-12 text-gray-300 mx-auto mb-2" />
-                    <p>No recent activity</p>
-                  </div>
-                )}
+            <button
+              onClick={() => setActiveTab('team')}
+              className="p-6 bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-200 text-left"
+            >
+              <div className="flex items-center space-x-3 mb-3">
+                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                  <UsersIcon className="w-6 h-6 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Manage Team</h3>
+                  <p className="text-sm text-gray-500">{activeTeamMembers} active members</p>
+                </div>
               </div>
-            </div>
-          </div>
+              <p className="text-sm text-gray-600">
+                Invite team members, manage roles and permissions for this business.
+              </p>
+            </button>
 
-          {/* Business Details Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Products List */}
-            <div className="bg-white rounded-xl shadow-sm p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Products & Services</h3>
-              <div className="space-y-3">
-                {business.products?.slice(0, 5).map((product, index) => (
-                  <div key={product._id || index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div>
-                      <p className="text-sm font-medium text-gray-900">{product.name}</p>
-                      <p className="text-xs text-gray-500 capitalize">{product.category}</p>
-                    </div>
-                    <div className="text-right">
-                      <span className={`text-xs px-2 py-1 rounded-full ${
-                        product.status === 'active' ? 'bg-green-100 text-green-800' :
-                        product.status === 'development' ? 'bg-blue-100 text-blue-800' :
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {product.status}
-                      </span>
-                      <p className="text-xs text-gray-500 mt-1">
-                        {formatCurrency(product.pricing?.amount || 0, filters.currency)}
-                      </p>
-                    </div>
+            {isOwner && (
+              <button
+                onClick={() => setActiveTab('settings')}
+                className="p-6 bg-white rounded-xl shadow-sm hover:shadow-md transition-all duration-200 text-left"
+              >
+                <div className="flex items-center space-x-3 mb-3">
+                  <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
+                    <CogIcon className="w-6 h-6 text-gray-600" />
                   </div>
-                ))}
-                {(!business.products || business.products.length === 0) && (
-                  <div className="text-center py-8 text-gray-500">
-                    <CubeIcon className="w-12 h-12 text-gray-300 mx-auto mb-2" />
-                    <p className="text-sm">No products added yet</p>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900">Settings</h3>
+                    <p className="text-sm text-gray-500">Configure business</p>
                   </div>
-                )}
-              </div>
-            </div>
-
-            {/* Team Members Preview */}
-            <div className="bg-white rounded-xl shadow-sm p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Team Members</h3>
-              <div className="space-y-3">
-                {business.teamMembers?.filter(m => m.status === 'active').slice(0, 5).map((member, index) => (
-                  <div key={member._id || index} className="flex items-center space-x-3">
-                    <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                      <span className="text-xs font-medium text-blue-600">
-                        {member.userId?.firstName?.charAt(0) || member.email?.charAt(0)?.toUpperCase()}
-                      </span>
-                    </div>
-                    <div className="flex-1">
-                      <p className="text-sm font-medium text-gray-900">
-                        {member.userId ? `${member.userId.firstName} ${member.userId.lastName}` : member.email}
-                      </p>
-                      <p className="text-xs text-gray-500 capitalize">{member.role}</p>
-                    </div>
-                    {member.role === 'owner' && <StarIconSolid className="w-4 h-4 text-yellow-500" />}
-                  </div>
-                ))}
-                {(!business.teamMembers || business.teamMembers.filter(m => m.status === 'active').length === 0) && (
-                  <div className="text-center py-8 text-gray-500">
-                    <UsersIcon className="w-12 h-12 text-gray-300 mx-auto mb-2" />
-                    <p className="text-sm">No team members</p>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Quick Actions */}
-            <div className="bg-white rounded-xl shadow-sm p-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
-              <div className="space-y-3">
-                <button
-                  onClick={() => setActiveTab('projects')}
-                  className="w-full text-left p-3 bg-purple-50 hover:bg-purple-100 rounded-lg transition-colors"
-                >
-                  <div className="flex items-center space-x-2">
-                    <FolderIcon className="w-5 h-5 text-purple-600" />
-                    <span className="text-sm font-medium text-purple-900">View Projects</span>
-                  </div>
-                  <p className="text-xs text-purple-600 mt-1">{linkedProjects} linked projects</p>
-                </button>
-                
-                <button
-                  onClick={() => setActiveTab('team')}
-                  className="w-full text-left p-3 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors"
-                >
-                  <div className="flex items-center space-x-2">
-                    <UsersIcon className="w-5 h-5 text-blue-600" />
-                    <span className="text-sm font-medium text-blue-900">Manage Team</span>
-                  </div>
-                  <p className="text-xs text-blue-600 mt-1">{activeTeamMembers} active members</p>
-                </button>
-                
-                {isOwner && (
-                  <button
-                    onClick={() => setActiveTab('settings')}
-                    className="w-full text-left p-3 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
-                  >
-                    <div className="flex items-center space-x-2">
-                      <CogIcon className="w-5 h-5 text-gray-600" />
-                      <span className="text-sm font-medium text-gray-900">Settings</span>
-                    </div>
-                    <p className="text-xs text-gray-600 mt-1">Configure business</p>
-                  </button>
-                )}
-              </div>
-            </div>
+                </div>
+                <p className="text-sm text-gray-600">
+                  Edit business information, manage settings and danger zone actions.
+                </p>
+              </button>
+            )}
           </div>
         </div>
       </main>
@@ -590,15 +475,19 @@ const BusinessDetail = () => {
     </main>
   );
 
-  // Render active component content
+  // FIXED: Render active component content with proper props
   const renderActiveComponent = () => {
+    console.log('Rendering active component:', activeTab); // Debug log
+    
     switch (activeTab) {
       case 'overview':
         return renderIndividualBusinessOverview();
       case 'projects':
-        return <BusinessProjects />;
+        // FIXED: Pass business data to prevent separate loading
+        return <BusinessProjects businessData={business} />;
       case 'team':
-        return <BusinessTeam />;
+        // FIXED: Pass business data to prevent separate loading
+        return <BusinessTeam businessData={business} />;
       case 'settings':
         return renderSettings();
       default:
@@ -611,7 +500,8 @@ const BusinessDetail = () => {
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin w-8 h-8 border-2 border-emerald-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading business...</p>
+          <p className="text-gray-600">Loading business details...</p>
+          <p className="text-xs text-gray-500 mt-2">Business ID: {businessId}</p>
         </div>
       </div>
     );
@@ -644,7 +534,7 @@ const BusinessDetail = () => {
                   {headerContent.subtitle}
                 </p>
               </div>
-            </div
+            </div>
             
             <div className="flex items-center space-x-4">
               <select
@@ -675,7 +565,10 @@ const BusinessDetail = () => {
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => {
+                    console.log('Switching to tab:', tab.id); // Debug log
+                    setActiveTab(tab.id);
+                  }}
                   className={`flex items-center space-x-2 py-4 px-2 border-b-2 font-medium text-sm transition-colors ${
                     activeTab === tab.id
                       ? 'border-emerald-500 text-emerald-600'

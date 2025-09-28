@@ -301,13 +301,32 @@ router.delete('/:id', authenticateUser, async (req, res) => {
 // TEAM MANAGEMENT
 // ============================================================================
 
-// POST /api/businesses/:id/invite - Invite user to business
+// POST /api/businesses/:id/invite - ENHANCED Invite user to business
 router.post('/:id/invite', authenticateUser, async (req, res) => {
   try {
-    const { email, role = 'member', permissions = [] } = req.body;
+    const { 
+      email, 
+      role = 'member', 
+      permissions = [],
+      jobTitle = 'Team Member',
+      level = 1,
+      responsibilities = '',
+      employmentType = 'full-time',
+      department = '',
+      startDate = null,
+      compensation = {}
+    } = req.body;
 
     if (!email) {
       return res.status(400).json({ error: 'Email is required' });
+    }
+
+    if (!jobTitle.trim()) {
+      return res.status(400).json({ error: 'Job title is required' });
+    }
+
+    if (level < 1 || level > 5) {
+      return res.status(400).json({ error: 'Level must be between 1 and 5' });
     }
 
     const business = await Business.findById(req.params.id);
@@ -336,7 +355,7 @@ router.post('/:id/invite', authenticateUser, async (req, res) => {
       return res.status(400).json({ error: 'User already invited or is a member' });
     }
 
-    // Check if user exists - Changed from User to Account
+    // Check if user exists
     const invitedUser = await Account.findOne({ email: email.toLowerCase() });
     
     const inviteToken = generateInviteToken();
@@ -345,14 +364,27 @@ router.post('/:id/invite', authenticateUser, async (req, res) => {
     const defaultPermissions = {
       viewer: ['view_business', 'view_products', 'view_projects'],
       member: ['view_business', 'view_products', 'view_projects', 'manage_projects'],
-      manager: ['view_business', 'edit_business', 'view_products', 'manage_products', 'view_projects', 'manage_projects'],
-      admin: ['view_business', 'edit_business', 'manage_products', 'view_products', 'manage_projects', 'view_projects', 'invite_users', 'view_analytics']
+      manager: ['view_business', 'edit_business', 'view_products', 'manage_products', 'view_projects', 'manage_projects', 'view_team_details'],
+      admin: ['view_business', 'edit_business', 'manage_products', 'view_products', 'manage_projects', 'view_projects', 'invite_users', 'view_analytics', 'manage_team', 'view_team_details'],
+      consultant: ['view_business', 'view_products', 'view_projects', 'manage_projects', 'view_analytics']
     };
 
     const teamMemberData = {
       userId: invitedUser?._id || null,
       email: email.toLowerCase(),
       role,
+      jobTitle: jobTitle.trim(),
+      level: parseInt(level),
+      responsibilities: responsibilities.trim(),
+      employmentType,
+      department: department.trim(),
+      startDate: startDate ? new Date(startDate) : null,
+      compensation: {
+        salary: compensation.salary || null,
+        currency: compensation.currency || 'GBP',
+        payFrequency: compensation.payFrequency || 'yearly',
+        isPublic: compensation.isPublic || false
+      },
       permissions: permissions.length > 0 ? permissions : (defaultPermissions[role] || defaultPermissions.member),
       status: 'pending',
       invitedBy: req.userId,
@@ -363,8 +395,7 @@ router.post('/:id/invite', authenticateUser, async (req, res) => {
     business.teamMembers.push(teamMemberData);
     await business.save();
 
-    // TODO: Send invitation email with inviteToken
-    console.log(`📧 Invite sent to ${email} for business ${business.name}`);
+    console.log(`📧 Enhanced invite sent to ${email} as ${jobTitle} (Level ${level}) for business ${business.name}`);
 
     // Populate and return the new team member
     await business.populate([
@@ -375,13 +406,13 @@ router.post('/:id/invite', authenticateUser, async (req, res) => {
     const newMember = business.teamMembers[business.teamMembers.length - 1];
 
     res.status(201).json({
-      message: 'Invitation sent successfully',
+      message: 'Enhanced invitation sent successfully',
       teamMember: newMember,
       inviteUrl: `${process.env.CLIENT_URL}/business/invite/${inviteToken}`
     });
 
   } catch (error) {
-    console.error('Error inviting user:', error);
+    console.error('Error sending enhanced invitation:', error);
     res.status(500).json({ error: 'Failed to send invitation' });
   }
 });
@@ -478,10 +509,22 @@ router.post('/join/:token', authenticateUser, async (req, res) => {
   }
 });
 
-// PUT /api/businesses/:id/members/:memberId - Update team member
+// PUT /api/businesses/:id/members/:memberId - ENHANCED Update team member
 router.put('/:id/members/:memberId', authenticateUser, async (req, res) => {
   try {
-    const { role, permissions, status } = req.body;
+    const { 
+      role, 
+      permissions, 
+      status,
+      jobTitle,
+      level,
+      responsibilities,
+      employmentType,
+      department,
+      startDate,
+      compensation,
+      notes
+    } = req.body;
 
     const business = await Business.findById(req.params.id);
     if (!business) {
@@ -513,18 +556,40 @@ router.put('/:id/members/:memberId', authenticateUser, async (req, res) => {
       return res.status(400).json({ error: 'Cannot modify owner role' });
     }
 
-    // Update member
-    if (role) business.teamMembers[memberIndex].role = role;
-    if (permissions) business.teamMembers[memberIndex].permissions = permissions;
-    if (status) business.teamMembers[memberIndex].status = status;
+    // Validate level if provided
+    if (level !== undefined && (level < 1 || level > 5)) {
+      return res.status(400).json({ error: 'Level must be between 1 and 5' });
+    }
+
+    // Update member with new fields
+    const member = business.teamMembers[memberIndex];
+    
+    if (role) member.role = role;
+    if (permissions) member.permissions = permissions;
+    if (status) member.status = status;
+    if (jobTitle) member.jobTitle = jobTitle.trim();
+    if (level !== undefined) member.level = parseInt(level);
+    if (responsibilities !== undefined) member.responsibilities = responsibilities.trim();
+    if (employmentType) member.employmentType = employmentType;
+    if (department !== undefined) member.department = department.trim();
+    if (startDate) member.startDate = new Date(startDate);
+    if (notes !== undefined) member.notes = notes.trim();
+    
+    if (compensation) {
+      member.compensation = {
+        ...member.compensation,
+        ...compensation
+      };
+    }
 
     await business.save();
 
     await business.populate([
-      { path: 'teamMembers.userId', select: 'firstName lastName email avatar' }
+      { path: 'teamMembers.userId', select: 'firstName lastName email avatar' },
+      { path: 'teamMembers.invitedBy', select: 'firstName lastName email' }
     ]);
 
-    console.log('✅ Team member updated successfully');
+    console.log('✅ Enhanced team member updated successfully');
 
     res.json({
       message: 'Team member updated successfully',
