@@ -81,11 +81,11 @@ const Overview = () => {
   };
 
   // Calculate total pages read
-  const calculatePagesRead = (books) => {
+  const calculatePagesRead = (readings) => {
     let totalPages = 0;
-    books.forEach(book => {
-      if (book.status === 'completed' && book.pages) {
-        totalPages += book.pages;
+    readings.forEach(reading => {
+      if (reading.status === 'completed' && reading.totalPages) {
+        totalPages += reading.totalPages;
       }
     });
     return totalPages;
@@ -102,28 +102,51 @@ const Overview = () => {
         return;
       }
 
-      // Mock data for now - replace with actual API call
-      const mockStats = {
-        overview: { 
-          total: 42, 
-          completed: 28, 
-          inProgress: 8, 
-          overdue: 3 
-        },
-        upcomingDeadlines: [],
-        topGenres: [
-          { genre: 'fiction', count: 15 },
-          { genre: 'non-fiction', count: 12 },
-          { genre: 'mystery', count: 8 },
-          { genre: 'sci-fi', count: 7 }
-        ],
-        recentActivity: { 
-          booksAddedThisMonth: 6, 
-          booksCompletedThisMonth: 4 
+      const response = await fetch('http://localhost:5001/api/reading/stats/dashboard', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         }
-      };
+      });
 
-      setStats(mockStats);
+      if (response.status === 401) {
+        localStorage.removeItem('user');
+        localStorage.removeItem('accessToken');
+        navigate('/auth/login');
+        return;
+      }
+
+      if (response.ok) {
+        const dashboardData = await response.json();
+        console.log('✅ Reading dashboard stats loaded:', dashboardData);
+        
+        // Map the backend response to your frontend state structure
+        setStats({
+          overview: {
+            total: dashboardData.overview.total || 0,
+            completed: dashboardData.overview.completed || 0,
+            inProgress: dashboardData.overview.currentlyReading || 0,
+            overdue: dashboardData.upcomingDeadlines?.filter(item => 
+              new Date(item.targetDate) < new Date()
+            ).length || 0
+          },
+          upcomingDeadlines: dashboardData.upcomingDeadlines || [],
+          topGenres: dashboardData.trends?.genres?.map(genre => ({
+            genre: genre._id,
+            count: genre.totalCount
+          })) || [],
+          recentActivity: {
+            booksAddedThisMonth: dashboardData.overview.thisMonth || 0,
+            booksCompletedThisMonth: dashboardData.overview.booksThisMonth || 0
+          }
+        });
+        
+        // Set total pages read
+        setPagesRead(dashboardData.overview.bookPagesRead || 0);
+      } else {
+        console.error('Failed to load reading stats');
+      }
+      
       setLoading(false);
     } catch (error) {
       console.error('Error loading reading stats:', error);
@@ -136,64 +159,50 @@ const Overview = () => {
     try {
       const token = localStorage.getItem('accessToken');
       
-      // Mock data for recent books - replace with actual API call
-      const mockBooks = [
-        {
-          _id: '1',
-          title: 'The Midnight Library',
-          author: 'Matt Haig',
-          status: 'reading',
-          pages: 288,
-          currentPage: 156,
-          rating: null,
-          genre: 'fiction',
-          dateStarted: new Date('2024-01-15'),
-          notes: []
-        },
-        {
-          _id: '2',
-          title: 'Atomic Habits',
-          author: 'James Clear',
-          status: 'completed',
-          pages: 320,
-          currentPage: 320,
-          rating: 5,
-          genre: 'non-fiction',
-          dateStarted: new Date('2024-01-01'),
-          dateCompleted: new Date('2024-01-14'),
-          notes: [{ content: 'Great insights on habit formation', createdAt: new Date() }]
-        },
-        {
-          _id: '3',
-          title: 'Dune',
-          author: 'Frank Herbert',
-          status: 'to_read',
-          pages: 688,
-          currentPage: 0,
-          rating: null,
-          genre: 'sci-fi',
-          notes: []
-        },
-        {
-          _id: '4',
-          title: 'The Psychology of Money',
-          author: 'Morgan Housel',
-          status: 'completed',
-          pages: 256,
-          currentPage: 256,
-          rating: 4,
-          genre: 'non-fiction',
-          dateCompleted: new Date('2024-01-10'),
-          notes: []
+      // Load all reading items to calculate total pages read
+      const allResponse = await fetch('http://localhost:5001/api/reading?limit=1000&type=book', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         }
-      ];
+      });
 
-      setRecentBooks(mockBooks);
-      
-      // Calculate total pages read
-      const totalPages = calculatePagesRead(mockBooks);
-      setPagesRead(totalPages);
+      if (allResponse.ok) {
+        const allData = await allResponse.json();
+        const totalPages = calculatePagesRead(allData.readings || []);
+        setPagesRead(totalPages);
+      }
 
+      // Load recent books for display
+      const recentResponse = await fetch('http://localhost:5001/api/reading?limit=8&sortBy=updatedAt&sortOrder=desc&type=book', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (recentResponse.ok) {
+        const recentData = await recentResponse.json();
+        console.log('✅ Recent books loaded:', recentData.readings.length);
+        
+        // Transform reading items to match your component structure
+        const transformedBooks = recentData.readings.map(reading => ({
+          _id: reading._id,
+          title: reading.title,
+          author: reading.author,
+          status: reading.status,
+          pages: reading.totalPages,
+          currentPage: reading.currentPage,
+          rating: reading.rating,
+          genre: reading.genre,
+          dateStarted: reading.startedAt,
+          dateCompleted: reading.completedAt,
+          notes: reading.notes ? [{ content: reading.notes, createdAt: reading.updatedAt }] : [],
+          progress: reading.progress || 0
+        }));
+        
+        setRecentBooks(transformedBooks);
+      }
     } catch (error) {
       console.error('Error loading recent books:', error);
     }
@@ -203,37 +212,39 @@ const Overview = () => {
   const loadAllBooks = async () => {
     try {
       setAllBooksLoading(true);
+      const token = localStorage.getItem('accessToken');
       
-      // Mock data - replace with actual API call
-      const mockAllBooks = [
-        ...recentBooks,
-        {
-          _id: '5',
-          title: 'Sapiens',
-          author: 'Yuval Noah Harari',
-          status: 'completed',
-          pages: 443,
-          currentPage: 443,
-          rating: 5,
-          genre: 'non-fiction',
-          dateCompleted: new Date('2023-12-20'),
-          notes: []
-        },
-        {
-          _id: '6',
-          title: 'The Silent Patient',
-          author: 'Alex Michaelides',
-          status: 'on_hold',
-          pages: 336,
-          currentPage: 89,
-          rating: null,
-          genre: 'mystery',
-          notes: []
+      const response = await fetch('http://localhost:5001/api/reading?limit=1000&type=book&sortBy=createdAt&sortOrder=desc', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
         }
-      ];
+      });
 
-      setAllBooks(mockAllBooks);
-      setFilteredBooks(mockAllBooks);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ All books loaded:', data.readings.length);
+        
+        // Transform reading items to match your component structure
+        const transformedBooks = data.readings.map(reading => ({
+          _id: reading._id,
+          title: reading.title,
+          author: reading.author,
+          status: reading.status,
+          pages: reading.totalPages,
+          currentPage: reading.currentPage,
+          rating: reading.rating,
+          genre: reading.genre,
+          dateStarted: reading.startedAt,
+          dateCompleted: reading.completedAt,
+          notes: reading.notes ? [{ content: reading.notes, createdAt: reading.updatedAt }] : [],
+          progress: reading.progress || 0
+        }));
+        
+        setAllBooks(transformedBooks);
+        setFilteredBooks(transformedBooks);
+      }
+      
       setAllBooksLoading(false);
     } catch (error) {
       console.error('Error loading all books:', error);
@@ -278,14 +289,58 @@ const Overview = () => {
   // Load book details
   const loadBookDetails = async (bookId) => {
     try {
+      const token = localStorage.getItem('accessToken');
+      
+      const response = await fetch(`http://localhost:5001/api/reading/${bookId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const reading = await response.json();
+        console.log('✅ Book details loaded:', reading.title);
+        
+        // Transform to match your component structure
+        const transformedBook = {
+          _id: reading._id,
+          title: reading.title,
+          author: reading.author,
+          status: reading.status,
+          pages: reading.totalPages,
+          currentPage: reading.currentPage,
+          rating: reading.rating,
+          genre: reading.genre,
+          dateStarted: reading.startedAt,
+          dateCompleted: reading.completedAt,
+          notes: reading.notes ? [{ content: reading.notes, createdAt: reading.updatedAt }] : [],
+          progress: reading.progress || 0,
+          analytics: reading.analytics
+        };
+        
+        setSelectedBook(transformedBook);
+        setShowBookModal(true);
+        setShowAllBooksModal(false);
+      } else {
+        console.error('❌ Failed to load book details:', response.status);
+        // Fallback to local data if API fails
+        const book = allBooks.find(b => b._id === bookId) || recentBooks.find(b => b._id === bookId);
+        if (book) {
+          setSelectedBook(book);
+          setShowBookModal(true);
+          setShowAllBooksModal(false);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading book details:', error);
+      // Fallback to local data
       const book = allBooks.find(b => b._id === bookId) || recentBooks.find(b => b._id === bookId);
       if (book) {
         setSelectedBook(book);
         setShowBookModal(true);
         setShowAllBooksModal(false);
       }
-    } catch (error) {
-      console.error('Error loading book details:', error);
     }
   };
 

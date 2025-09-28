@@ -9,6 +9,7 @@ import Finances from './finance/finances';
 import Goals from './goals/goals.jsx';
 import Projects from './projects/projects';
 import BusinessOverview from './business/businessOverview';
+import Reading from './reading/reading'; // Added actual Reading import
 
 // Enhanced Protected Route Component
 const ProtectedRoute = ({ children }) => {
@@ -98,15 +99,6 @@ const TasksPage = () => (
   </div>
 );
 
-const ReadingPage = () => (
-  <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
-    <div className="bg-white rounded-2xl shadow-xl p-8">
-      <h2 className="text-2xl font-bold text-gray-900 mb-4">Reading Module</h2>
-      <p className="text-gray-600">Reading list management coming soon...</p>
-    </div>
-  </div>
-);
-
 const SkillsPage = () => (
   <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center">
     <div className="bg-white rounded-2xl shadow-xl p-8">
@@ -144,7 +136,7 @@ const App = () => {
           </ProtectedRoute>
         } />
         
-        {/* Business Routes - NEW */}
+        {/* Business Routes */}
         <Route path="/business" element={
           <ProtectedRoute>
             <BusinessOverview />
@@ -192,14 +184,15 @@ const App = () => {
             <Goals />
           </ProtectedRoute>
         } />
+        {/* UPDATED: Reading routes now use the actual Reading component */}
         <Route path="/reading" element={
           <ProtectedRoute>
-            <ReadingPage />
+            <Reading />
           </ProtectedRoute>
         } />
         <Route path="/reading/new" element={
           <ProtectedRoute>
-            <ReadingPage />
+            <Reading />
           </ProtectedRoute>
         } />
         <Route path="/skills" element={
