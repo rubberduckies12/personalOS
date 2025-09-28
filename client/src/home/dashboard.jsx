@@ -50,15 +50,101 @@ const Dashboard = () => {
     return string.charAt(0).toUpperCase() + string.slice(1).toLowerCase();
   };
 
-  // Simplified authentication check - don't make API calls for auth verification
+  // Get JWT token from localStorage - Updated to match login component
+  const getAuthToken = () => {
+    return localStorage.getItem('accessToken') || sessionStorage.getItem('accessToken') || 
+           localStorage.getItem('authToken') || sessionStorage.getItem('authToken');
+  };
+
+  // Create fetch options with JWT Authorization header
+  const createFetchOptions = (options = {}) => {
+    const token = getAuthToken();
+    
+    return {
+      method: options.method || 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` }),
+        ...options.headers
+      },
+      ...options
+    };
+  };
+
+  // Simplified authentication check using JWT
   const checkAuth = async () => {
     try {
-      console.log('🔍 Checking authentication...');
+      console.log('🔍 Checking JWT authentication...');
       
-      // Get user data from localStorage
+      const token = getAuthToken();
+      if (!token) {
+        console.log('❌ No JWT token found');
+        console.log('🔍 Available localStorage keys:', Object.keys(localStorage));
+        console.log('🔍 accessToken from localStorage:', localStorage.getItem('accessToken'));
+        console.log('🔍 authToken from localStorage:', localStorage.getItem('authToken'));
+        console.log('🔍 accessToken from sessionStorage:', sessionStorage.getItem('accessToken'));
+        
+        // Clear any stale data
+        localStorage.removeItem('user');
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('authToken');
+        sessionStorage.removeItem('accessToken');
+        sessionStorage.removeItem('authToken');
+        
+        navigate('/auth/login', { 
+          state: { message: 'Please log in to continue' }
+        });
+        return false;
+      }
+
+      // Verify token is not expired by attempting to parse it
+      try {
+        const tokenParts = token.split('.');
+        if (tokenParts.length !== 3) {
+          console.log('❌ Invalid JWT token format');
+          localStorage.removeItem('user');
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('authToken');
+          navigate('/auth/login', { 
+            state: { message: 'Invalid session. Please log in again.' }
+          });
+          return false;
+        }
+
+        // Decode payload to check expiration (basic client-side check)
+        const payload = JSON.parse(atob(tokenParts[1]));
+        const now = Math.floor(Date.now() / 1000);
+        
+        if (payload.exp && payload.exp < now) {
+          console.log('❌ JWT token has expired');
+          localStorage.removeItem('user');
+          localStorage.removeItem('accessToken');
+          localStorage.removeItem('authToken');
+          navigate('/auth/login', { 
+            state: { message: 'Your session has expired. Please log in again.' }
+          });
+          return false;
+        }
+        
+        console.log('✅ JWT token is valid, exp:', new Date(payload.exp * 1000));
+      } catch (tokenParseError) {
+        console.log('❌ Could not parse JWT token:', tokenParseError.message);
+        localStorage.removeItem('user');
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('authToken');
+        navigate('/auth/login', { 
+          state: { message: 'Invalid session. Please log in again.' }
+        });
+        return false;
+      }
+
+      // Get user data from localStorage (set during login)
       const userData = localStorage.getItem('user');
       if (!userData) {
         console.log('❌ No user data in localStorage');
+        // Clean up orphaned tokens
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('authToken');
         navigate('/auth/login', { 
           state: { message: 'Please log in to continue' }
         });
@@ -66,29 +152,55 @@ const Dashboard = () => {
       }
 
       setUser(JSON.parse(userData));
-      console.log('✅ Authentication successful - user data found');
+      console.log('✅ JWT authentication successful');
+      console.log('🔑 Token preview:', token.substring(0, 50) + '...');
       return true;
 
     } catch (error) {
       console.error('🚨 Auth check error:', error);
-      // On error, don't redirect - just continue
-      return true;
+      // Clean up on any error
+      localStorage.removeItem('user');
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('authToken');
+      navigate('/auth/login', { 
+        state: { message: 'Authentication error. Please log in again.' }
+      });
+      return false;
     }
   };
 
-  // Logout function
+  // Logout function - clear JWT tokens
   const handleLogout = async () => {
     try {
-      // Clear local storage
-      localStorage.removeItem('user');
-      localStorage.removeItem('token');
-      sessionStorage.removeItem('token');
+      console.log('🚪 Logging out...');
       
-      // Make logout request to clear HTTP cookies
-      await fetch('http://localhost:5001/api/auth/logout', {
-        method: 'POST',
-        credentials: 'include' // Include cookies
-      });
+      // Clear all auth data from storage - Updated to match login keys
+      localStorage.removeItem('user');
+      localStorage.removeItem('accessToken');
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('rememberMe');
+      localStorage.removeItem('role');
+      sessionStorage.removeItem('accessToken');
+      sessionStorage.removeItem('authToken');
+      
+      // Optional: Make logout request to server (to blacklist token if you implement that)
+      const token = getAuthToken();
+      if (token) {
+        try {
+          await fetch('http://localhost:5001/api/auth/logout', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json'
+            }
+          });
+        } catch (error) {
+          console.log('Logout request failed, but continuing with client-side logout');
+        }
+      }
+      
+      console.log('✅ Logout successful');
       
       // Redirect to login
       navigate('/auth/login', { 
@@ -160,36 +272,31 @@ const Dashboard = () => {
       setLoading(true);
       setAuthError(false);
 
-      console.log('📊 Starting dashboard data load...');
+      console.log('📊 Starting dashboard data load with JWT...');
 
-      // Simple auth check - just verify localStorage
+      // Check JWT authentication
       const isAuthenticated = await checkAuth();
       if (!isAuthenticated) {
-        console.log('❌ Authentication failed, stopping data load');
+        console.log('❌ JWT authentication failed, stopping data load');
         setLoading(false);
         return;
       }
 
-      console.log('🔄 Fetching real dashboard data from APIs...');
+      console.log('🔄 Fetching dashboard data with JWT Authorization...');
 
-      // Fetch options for all API calls
-      const fetchOptions = {
-        method: 'GET',
-        credentials: 'include', // This sends cookies for authentication
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      };
-
-      // Helper function to safely fetch data with fallbacks
+      // Helper function to safely fetch data with JWT auth and fallbacks
       const fetchWithFallback = async (url, fallbackData) => {
         try {
           console.log(`🌐 Fetching: ${url}`);
-          const response = await fetch(url, fetchOptions);
+          const response = await fetch(url, createFetchOptions());
           
           if (response.status === 401) {
-            console.log('🔒 401 Unauthorized - redirecting to login');
+            console.log('🔒 401 Unauthorized - JWT token invalid, redirecting to login');
             localStorage.removeItem('user');
+            localStorage.removeItem('accessToken');
+            localStorage.removeItem('authToken');
+            sessionStorage.removeItem('accessToken');
+            sessionStorage.removeItem('authToken');
             navigate('/auth/login', { 
               state: { message: 'Your session has expired. Please log in again.' }
             });
@@ -210,15 +317,14 @@ const Dashboard = () => {
         }
       };
 
-      // Fetch data from all endpoints
+      // Fetch data from existing endpoints with JWT authentication (removed businesses API call)
       const [
         tasksData,
         projectsData,
         goalsData,
         readingData,
         skillsData,
-        financesData,
-        businessesData
+        financesData
       ] = await Promise.all([
         fetchWithFallback(
           'http://localhost:5001/api/tasks/analytics/overview',
@@ -243,21 +349,17 @@ const Dashboard = () => {
         fetchWithFallback(
           'http://localhost:5001/api/finances/budgets?limit=1',
           { summary: { income: 0, expenses: 0, savings: 0 } }
-        ),
-        fetchWithFallback(
-          'http://localhost:5001/api/businesses?limit=3&status=active',
-          []
         )
       ]);
 
       // If any call returned null (401 error), stop processing
       if (!tasksData || !projectsData || !goalsData || !readingData || !skillsData || !financesData) {
-        console.log('❌ Authentication failed during API calls');
+        console.log('❌ JWT authentication failed during API calls');
         setLoading(false);
         return;
       }
 
-      console.log('📊 Processing API data...');
+      console.log('📊 Processing API data with JWT auth successful...');
 
       // Update stats with real data
       setStats({
@@ -293,32 +395,18 @@ const Dashboard = () => {
         }
       });
 
-      // Process businesses data
-      if (businessesData && Array.isArray(businessesData)) {
-        setBusinesses(
-          businessesData.map(business => ({
-            id: business._id || business.id,
-            name: business.name,
-            industry: business.industry,
-            status: business.status,
-            teamSize: business.teamMemberCount || business.teamMembers?.length || 1,
-            stage: business.stage,
-            updatedAt: business.updatedAt
-          }))
-        );
-      } else {
-        // Fallback businesses data
-        setBusinesses([
-          {
-            id: 'biz-1',
-            name: 'PersonalOS Ventures',
-            industry: 'technology',
-            status: 'active',
-            teamSize: 1,
-            stage: 'startup'
-          }
-        ]);
-      }
+      // Set placeholder businesses data until the API is built
+      setBusinesses([
+        {
+          id: 'placeholder-1',
+          name: 'PersonalOS Ventures',
+          industry: 'Technology',
+          status: 'active',
+          teamSize: 1,
+          stage: 'Planning',
+          description: 'Your first business venture'
+        }
+      ]);
 
       // Generate upcoming calendar events
       const events = generateUpcomingEvents(tasksData, projectsData);
@@ -330,11 +418,11 @@ const Dashboard = () => {
         setTimeout(() => setShowWelcome(false), 5000);
       }
 
-      console.log('✅ Dashboard loaded successfully with real data');
+      console.log('✅ Dashboard loaded successfully with JWT authentication');
       setLoading(false);
 
     } catch (error) {
-      console.error('🚨 Error loading dashboard:', error);
+      console.error('🚨 Error loading dashboard with JWT:', error);
       setLoading(false);
       setAuthError(true);
     }
@@ -617,84 +705,41 @@ const Dashboard = () => {
             </div>
           </div>
 
-          {/* Businesses Card */}
+          {/* Businesses Card - Updated with placeholder message */}
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center space-x-2">
                 <BuildingOffice2Icon className="w-6 h-6 text-emerald-600" />
                 <h3 className="text-lg font-semibold text-gray-900">Your Businesses</h3>
               </div>
-              <button 
-                onClick={() => navigate('/businesses')}
-                className="text-sm text-emerald-600 hover:text-emerald-700 font-medium flex items-center space-x-1"
-              >
-                <span>View All</span>
-                <ArrowRightIcon className="w-4 h-4" />
-              </button>
+              <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                Coming Soon
+              </span>
             </div>
             
             <div className="space-y-3">
-              {businesses.length > 0 ? (
-                businesses.map((business) => (
-                  <div key={business.id} className="flex items-center justify-between p-3 rounded-lg bg-emerald-50 hover:bg-emerald-100 transition-colors cursor-pointer">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-10 h-10 bg-emerald-500 rounded-lg flex items-center justify-center">
-                        <BuildingOffice2Icon className="w-5 h-5 text-white" />
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-medium text-gray-900">{business.name}</p>
-                        <div className="flex items-center space-x-2 text-xs text-gray-500">
-                          <span className="capitalize">{business.industry}</span>
-                          <span>•</span>
-                          <span className="capitalize">{business.stage}</span>
-                          <span>•</span>
-                          <span>{business.teamSize} member{business.teamSize !== 1 ? 's' : ''}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                        business.status === 'active' ? 'bg-green-100 text-green-700' :
-                        business.status === 'inactive' ? 'bg-gray-100 text-gray-700' :
-                        business.status === 'paused' ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-red-100 text-red-700'
-                      }`}>
-                        {business.status}
-                      </span>
-                      <button className="text-emerald-600 hover:text-emerald-700">
-                        <ArrowRightIcon className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-8">
-                  <BuildingOffice2Icon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
-                  <p className="text-gray-500 text-sm mb-3">No businesses yet</p>
-                  <button 
-                    onClick={() => navigate('/businesses/new')}
-                    className="inline-flex items-center space-x-2 px-4 py-2 bg-emerald-500 text-white text-sm font-medium rounded-lg hover:bg-emerald-600 transition-colors"
-                  >
-                    <PlusIcon className="w-4 h-4" />
-                    <span>Create Business</span>
-                  </button>
+              <div className="text-center py-8">
+                <BuildingOffice2Icon className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                <p className="text-gray-500 text-sm mb-2">Business Management Coming Soon!</p>
+                <p className="text-xs text-gray-400 mb-4">
+                  Track and manage your business ventures, partnerships, and entrepreneurial projects
+                </p>
+                <div className="bg-gradient-to-r from-emerald-50 to-teal-50 border border-emerald-200 rounded-lg p-4 text-left">
+                  <h4 className="text-sm font-semibold text-emerald-800 mb-2">Planned Features:</h4>
+                  <ul className="text-xs text-emerald-700 space-y-1">
+                    <li>• Business idea tracking</li>
+                    <li>• Revenue & expense monitoring</li>
+                    <li>• Team member management</li>
+                    <li>• Business milestone tracking</li>
+                    <li>• Partnership management</li>
+                  </ul>
                 </div>
-              )}
+              </div>
             </div>
-            
-            {businesses.length > 0 && (
-              <button 
-                onClick={() => navigate('/businesses/new')}
-                className="w-full mt-4 py-2 text-sm text-emerald-600 hover:text-emerald-700 font-medium border border-emerald-200 rounded-lg hover:bg-emerald-50 transition-colors flex items-center justify-center space-x-2"
-              >
-                <PlusIcon className="w-4 h-4" />
-                <span>Add Business</span>
-              </button>
-            )}
           </div>
         </div>
 
-        {/* Stats Card - Replace Bottom CTA */}
+        {/* Stats Card - Updated without business stats */}
         <div className="mt-8 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl p-8 text-white">
           <div className="text-center mb-6">
             <h3 className="text-2xl font-bold mb-2">Your Achievement Summary</h3>
@@ -720,22 +765,6 @@ const Dashboard = () => {
               </div>
             </div>
 
-            {/* Active Businesses */}
-            <div className="text-center">
-              <div className="bg-white/20 rounded-lg p-6 mb-3">
-                <BuildingOffice2Icon className="w-12 h-12 text-white mx-auto mb-3" />
-                <div className="text-3xl font-bold text-white mb-1">
-                  {businesses.filter(b => b.status === 'active').length}
-                </div>
-                <div className="text-blue-100 text-sm font-medium">
-                  Active Business{businesses.filter(b => b.status === 'active').length !== 1 ? 'es' : ''}
-                </div>
-              </div>
-              <div className="text-xs text-blue-200">
-                {businesses.length} total businesses
-              </div>
-            </div>
-
             {/* Goals Achieved */}
             <div className="text-center">
               <div className="bg-white/20 rounded-lg p-6 mb-3">
@@ -749,6 +778,22 @@ const Dashboard = () => {
               </div>
               <div className="text-xs text-blue-200">
                 {stats.goals.inProgress} in progress • {stats.goals.total} total
+              </div>
+            </div>
+
+            {/* Skills Mastered */}
+            <div className="text-center">
+              <div className="bg-white/20 rounded-lg p-6 mb-3">
+                <AcademicCapIcon className="w-12 h-12 text-white mx-auto mb-3" />
+                <div className="text-3xl font-bold text-white mb-1">
+                  {stats.skills.mastered}
+                </div>
+                <div className="text-blue-100 text-sm font-medium">
+                  Skill{stats.skills.mastered !== 1 ? 's' : ''} Mastered
+                </div>
+              </div>
+              <div className="text-xs text-blue-200">
+                {stats.skills.learning} learning • {stats.skills.total} total
               </div>
             </div>
           </div>
@@ -775,10 +820,10 @@ const Dashboard = () => {
             
             <div className="text-center">
               <div className="text-xl font-bold text-white mb-1">
-                {stats.skills.mastered}
+                {stats.reading.currentlyReading}
               </div>
               <div className="text-xs text-blue-200">
-                Skills Mastered
+                Currently Reading
               </div>
             </div>
             
@@ -811,11 +856,11 @@ const Dashboard = () => {
             </button>
             
             <button 
-              onClick={() => navigate('/businesses/new')}
+              onClick={() => navigate('/tasks/new')}
               className="bg-white/20 hover:bg-white/30 text-white px-4 py-2 rounded-lg font-medium transition-colors border border-white/20 flex items-center space-x-2"
             >
               <PlusIcon className="w-4 h-4" />
-              <span>New Business</span>
+              <span>New Task</span>
             </button>
           </div>
         </div>

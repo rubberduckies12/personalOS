@@ -15,6 +15,7 @@ const readingRoute = require('./routes/reading');
 const skillsRoute = require('./routes/skills');
 const financesRoute = require('./routes/finances');
 const aiRoute = require('./routes/ai'); // Add AI route
+const homeRoute = require('./routes/home'); // Add home route
 
 const app = express();
 const PORT = process.env.PORT || 5001;
@@ -67,6 +68,7 @@ app.use('/api/reading', readingRoute);
 app.use('/api/skills', skillsRoute);
 app.use('/api/finances', financesRoute);
 app.use('/api/ai', aiRoute); // Add AI route
+app.use('/api/home', homeRoute); // Add home route
 
 // 404 handler
 app.use('/api', (req, res) => {
@@ -83,6 +85,7 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
   console.log(`🤖 AI features enabled with OpenAI API`);
+  console.log(`📊 Dashboard endpoint: http://localhost:${PORT}/api/home/dashboard`);
 });
 
 module.exports = app;

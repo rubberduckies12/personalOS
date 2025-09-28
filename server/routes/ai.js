@@ -13,6 +13,9 @@ const Income = require('../models/incomeModel');
 const Budget = require('../models/budgetModel');
 const Account = require('../models/accountModel');
 
+// Import JWT authentication middleware instead of custom one
+const { authenticateUser } = require('../middleware/auth');
+
 // Initialize OpenAI
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
@@ -111,32 +114,12 @@ const cleanupCostTracking = () => {
 };
 
 // ============================================================================
-// MIDDLEWARE
+// MIDDLEWARE - REMOVE CUSTOM AUTH, USE JWT
 // ============================================================================
-
-const authenticateUser = async (req, res, next) => {
-  try {
-    const userId = req.headers['user-id'] || req.body.userId;
-    if (!userId) {
-      return res.status(401).json({ error: 'User ID required' });
-    }
-    
-    const user = await Account.findById(userId);
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    req.userId = userId;
-    req.user = user;
-    next();
-  } catch (error) {
-    res.status(500).json({ error: 'Authentication failed' });
-  }
-};
 
 const trackCosts = async (req, res, next) => {
   const { daily, monthly } = getDateKeys();
-  const userId = req.userId;
+  const userId = req.userId; // Set by JWT middleware
   
   const dailyUsage = costTracker.daily.get(`${userId}-${daily}`) || 0;
   const monthlyUsage = costTracker.monthly.get(`${userId}-${monthly}`) || 0;
@@ -192,7 +175,7 @@ const trackCosts = async (req, res, next) => {
 };
 
 // ============================================================================
-// CONTEXT & MEMORY FUNCTIONS
+// CONTEXT & MEMORY FUNCTIONS (unchanged)
 // ============================================================================
 
 const generateEmbedding = async (text) => {
@@ -410,7 +393,7 @@ const detectAndLinkEntities = async (message, userId) => {
 };
 
 // ============================================================================
-// SUMMARY FUNCTIONS
+// SUMMARY FUNCTIONS (unchanged)  
 // ============================================================================
 
 const getProductivitySummary = async (userId) => {
@@ -633,12 +616,14 @@ Overall Status:
 };
 
 // ============================================================================
-// API ROUTES
+// API ROUTES - NOW USE JWT MIDDLEWARE
 // ============================================================================
 
 // POST /api/ai/chat - Enhanced chat endpoint
 router.post('/chat', authenticateUser, trackCosts, async (req, res) => {
   try {
+    console.log('🤖 AI Chat request for user:', req.userId);
+    
     const {
       message,
       model = 'gpt-4',
@@ -938,6 +923,8 @@ router.post('/chat', authenticateUser, trackCosts, async (req, res) => {
 // POST /api/ai/voice - Voice chat endpoint
 router.post('/voice', authenticateUser, trackCosts, async (req, res) => {
   try {
+    console.log('🎤 AI Voice request for user:', req.userId);
+    
     const {
       audioData,
       model = 'whisper-1',
@@ -1027,6 +1014,8 @@ router.post('/voice', authenticateUser, trackCosts, async (req, res) => {
 // GET /api/ai/usage - Usage tracking endpoint
 router.get('/usage', authenticateUser, async (req, res) => {
   try {
+    console.log('📊 AI Usage stats requested for user:', req.userId);
+    
     const { period = 'current' } = req.query;
     const { daily, monthly } = getDateKeys();
     const userId = req.userId;
@@ -1094,8 +1083,12 @@ router.get('/usage', authenticateUser, async (req, res) => {
 // GET /api/ai/summary - General summary (no context)
 router.get('/summary', authenticateUser, async (req, res) => {
   try {
+    console.log('📋 AI Summary requested for user:', req.userId);
+    
     const context = 'general';
     const summary = await getSmartUserSummary(req.userId, context);
+    
+    console.log('📋 AI Summary response sent for user:', req.userId);
     
     res.json({
       success: true,
@@ -1118,6 +1111,8 @@ router.get('/summary/:context', authenticateUser, async (req, res) => {
   try {
     const { context } = req.params;
     
+    console.log(`📋 AI ${context} summary requested for user:`, req.userId);
+    
     const validContexts = ['productivity', 'finance', 'learning', 'goals', 'general'];
     if (!validContexts.includes(context)) {
       return res.status(400).json({ 
@@ -1127,6 +1122,8 @@ router.get('/summary/:context', authenticateUser, async (req, res) => {
     }
     
     const summary = await getSmartUserSummary(req.userId, context);
+    
+    console.log(`📋 AI ${context} summary response sent for user:`, req.userId);
     
     res.json({
       success: true,

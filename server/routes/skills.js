@@ -2,33 +2,9 @@ const express = require('express');
 const router = express.Router();
 const mongoose = require('mongoose');
 const Skill = require('../models/skillsModel');
+const { authenticateUser } = require('../middleware/auth'); // Import existing JWT auth middleware
 
-// Middleware to verify user authentication
-const authenticateUser = async (req, res, next) => {
-  try {
-    // This should integrate with your existing authentication middleware
-    // For now, assuming user ID is passed in headers or extracted from JWT
-    const userId = req.headers['user-id'] || req.user?.id;
-    
-    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(401).json({
-        error: 'Authentication required',
-        code: 'AUTH_REQUIRED'
-      });
-    }
-    
-    req.userId = userId;
-    next();
-  } catch (error) {
-    console.error('Authentication error:', error);
-    res.status(401).json({
-      error: 'Authentication failed',
-      code: 'AUTH_FAILED'
-    });
-  }
-};
-
-// Apply authentication middleware to all routes
+// Apply JWT authentication middleware to all routes
 router.use(authenticateUser);
 
 // GET /api/skills - Get all skills for user
@@ -47,7 +23,7 @@ router.get('/', async (req, res) => {
       archived = false
     } = req.query;
 
-    // Build filter
+    // Build filter - req.userId is set by authenticateUser middleware
     const filter = { userId: req.userId, archived: archived === 'true' };
     
     if (category && category !== 'all') {
@@ -852,6 +828,8 @@ router.post('/:id/link', async (req, res) => {
 // GET /api/skills/analytics/overview - Get skills analytics overview
 router.get('/analytics/overview', async (req, res) => {
   try {
+    console.log('🎯 Skills analytics overview requested for user:', req.userId);
+    
     const { timeframe = '30d' } = req.query;
 
     // Calculate date range
@@ -976,6 +954,13 @@ router.get('/analytics/overview', async (req, res) => {
       hours: Math.round((item.totalMinutes / 60) * 100) / 100,
       avgEffectiveness: item.avgEffectiveness ? Math.round(item.avgEffectiveness * 10) / 10 : null
     }));
+
+    console.log('🎯 Skills analytics response:', {
+      totalSkills: overview.total,
+      learningSkills: overview.learning,
+      masteredSkills: overview.mastered,
+      totalPracticeTime: overview.totalPracticeTime
+    });
 
     res.json({
       overview,

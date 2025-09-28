@@ -3,37 +3,16 @@ const router = express.Router();
 const mongoose = require('mongoose');
 const Task = require('../models/tasksModel');
 const Project = require('../models/projectsModel');
+const { authenticateUser } = require('../middleware/auth'); // Import existing JWT auth middleware
 
-// Middleware to verify user authentication
-const authenticateUser = async (req, res, next) => {
-  try {
-   
-    const userId = req.headers['user-id'] || req.user?.id;
-    
-    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
-      return res.status(401).json({
-        error: 'Authentication required',
-        code: 'AUTH_REQUIRED'
-      });
-    }
-    
-    req.userId = userId;
-    next();
-  } catch (error) {
-    console.error('Authentication error:', error);
-    res.status(401).json({
-      error: 'Authentication failed',
-      code: 'AUTH_FAILED'
-    });
-  }
-};
-
-// Apply authentication middleware to all routes
+// Apply JWT authentication middleware to all routes
 router.use(authenticateUser);
 
 // GET /api/tasks - Get all tasks for user with advanced filtering
 router.get('/', async (req, res) => {
   try {
+    console.log('📋 Tasks list requested for user:', req.userId);
+    
     const {
       status,
       urgency,
@@ -54,7 +33,7 @@ router.get('/', async (req, res) => {
       archived = false
     } = req.query;
 
-    // Build filter
+    // Build filter - req.userId is set by authenticateUser middleware
     const filter = { userId: req.userId, isArchived: archived === 'true' };
     
     if (status && status !== 'all') {
@@ -184,6 +163,12 @@ router.get('/', async (req, res) => {
 
     // Get summary statistics
     const summary = await getTasksSummary(req.userId);
+
+    console.log('📋 Tasks response:', {
+      totalTasks: total,
+      activeTasks: summary.active,
+      completedTasks: summary.completed
+    });
 
     res.json({
       tasks: enrichedTasks,
@@ -1019,9 +1004,11 @@ router.delete('/:id/link', async (req, res) => {
   }
 });
 
-// GET /api/tasks/analytics/overview - Get tasks analytics overview
+// GET /api/tasks/analytics/overview - Get tasks analytics overview  
 router.get('/analytics/overview', async (req, res) => {
   try {
+    console.log('📊 Tasks analytics overview requested for user:', req.userId);
+    
     const { timeframe = '30d' } = req.query;
 
     // Calculate date range
@@ -1162,6 +1149,13 @@ router.get('/analytics/overview', async (req, res) => {
 
     // Get additional summary data
     const summary = await getTasksSummary(req.userId);
+
+    console.log('📊 Tasks analytics response:', {
+      totalTasks: summary.total,
+      activeTasks: summary.active,
+      completedTasks: summary.completed,
+      overdueTasks: summary.overdue
+    });
 
     res.json({
       summary,
@@ -1329,8 +1323,21 @@ async function getTasksSummary(userId) {
       Task.countDocuments({ userId, isArchived: false }),
       Task.countDocuments({ userId, isArchived: false, status: { $in: ['not_started', 'in_progress'] } }),
       Task.countDocuments({ userId, isArchived: false, status: 'completed' }),
-      Task.getOverdue(userId).countDocuments(), // ✅ Now works
-      Task.getDueToday(userId).countDocuments() // ✅ Now works
+      Task.countDocuments({ 
+        userId, 
+        isArchived: false,
+        deadline: { $lt: new Date() },
+        status: { $ne: 'completed' }
+      }),
+      Task.countDocuments({ 
+        userId, 
+        isArchived: false,
+        deadline: { 
+          $gte: new Date(new Date().setHours(0, 0, 0, 0)),
+          $lte: new Date(new Date().setHours(23, 59, 59, 999))
+        },
+        status: { $ne: 'completed' }
+      })
     ]);
 
     return {

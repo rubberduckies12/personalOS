@@ -4,6 +4,7 @@ const Reading = require('../models/readingModel');
 const Task = require('../models/tasksModel');
 const Goal = require('../models/goalsModel');
 const UserPreferences = require('../models/userPreferencesModel');
+const { authenticateUser } = require('../middleware/auth'); // Import existing JWT auth middleware
 const {
   calculateReadingProgress,
   estimateReadingTime,
@@ -16,19 +17,12 @@ const {
   getCurrentYearBreakdown
 } = require('../utils/readingHelpers');
 
-// Middleware to authenticate user and load preferences
-const authenticateUser = async (req, res, next) => {
+// Middleware to load user preferences (after JWT auth)
+const loadUserPreferences = async (req, res, next) => {
   try {
-    const userId = req.headers['user-id'] || req.body.userId;
-    if (!userId) {
-      return res.status(401).json({ error: 'User ID required' });
-    }
-    
-    req.userId = userId;
-    
-    // Load user preferences
+    // req.userId is set by authenticateUser middleware
     try {
-      req.userPreferences = await UserPreferences.getUserPreferences(userId);
+      req.userPreferences = await UserPreferences.getUserPreferences(req.userId);
     } catch (error) {
       console.warn('Could not load user preferences, using defaults:', error.message);
       req.userPreferences = { reading: { yearlyGoal: 52, defaultPageTime: 3 } };
@@ -36,12 +30,15 @@ const authenticateUser = async (req, res, next) => {
     
     next();
   } catch (error) {
-    res.status(500).json({ error: 'Authentication failed' });
+    res.status(500).json({ error: 'Failed to load user preferences' });
   }
 };
 
+// Combine both middleware functions
+const authWithPreferences = [authenticateUser, loadUserPreferences];
+
 // GET /api/reading - Get all reading items with performance optimization
-router.get('/', authenticateUser, async (req, res) => {
+router.get('/', authWithPreferences, async (req, res) => {
   try {
     const { 
       status, 
@@ -56,7 +53,7 @@ router.get('/', authenticateUser, async (req, res) => {
       author
     } = req.query;
 
-    // Build optimized filter object
+    // Build optimized filter object - req.userId set by authenticateUser middleware
     const filter = { userId: req.userId };
     
     if (status) filter.status = status;
@@ -117,7 +114,7 @@ router.get('/', authenticateUser, async (req, res) => {
 });
 
 // GET /api/reading/:id - Get specific reading item with details
-router.get('/:id', authenticateUser, async (req, res) => {
+router.get('/:id', authWithPreferences, async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -209,7 +206,7 @@ router.get('/:id', authenticateUser, async (req, res) => {
 });
 
 // POST /api/reading - Create new reading item
-router.post('/', authenticateUser, async (req, res) => {
+router.post('/', authWithPreferences, async (req, res) => {
   try {
     const {
       title,
@@ -294,7 +291,7 @@ router.post('/', authenticateUser, async (req, res) => {
 });
 
 // PUT /api/reading/:id - Update reading item
-router.put('/:id', authenticateUser, async (req, res) => {
+router.put('/:id', authWithPreferences, async (req, res) => {
   try {
     const { id } = req.params;
     const updateData = { ...req.body };
@@ -349,7 +346,7 @@ router.put('/:id', authenticateUser, async (req, res) => {
 });
 
 // PUT /api/reading/:id/progress - Update reading progress
-router.put('/:id/progress', authenticateUser, async (req, res) => {
+router.put('/:id/progress', authWithPreferences, async (req, res) => {
   try {
     const { id } = req.params;
     const { currentPage, sessionDuration, notes } = req.body;
@@ -412,7 +409,7 @@ router.put('/:id/progress', authenticateUser, async (req, res) => {
 });
 
 // POST /api/reading/:id/session - Log reading session
-router.post('/:id/session', authenticateUser, async (req, res) => {
+router.post('/:id/session', authWithPreferences, async (req, res) => {
   try {
     const { id } = req.params;
     const { duration, pagesRead, startPage, endPage, notes } = req.body;
@@ -504,8 +501,10 @@ router.delete('/:id', authenticateUser, async (req, res) => {
 });
 
 // GET /api/reading/stats/dashboard - Optimized dashboard with user preferences
-router.get('/stats/dashboard', authenticateUser, async (req, res) => {
+router.get('/stats/dashboard', authWithPreferences, async (req, res) => {
   try {
+    console.log('📚 Reading dashboard stats requested for user:', req.userId);
+    
     // Use parallel queries for better performance
     const [
       readings,
@@ -533,6 +532,8 @@ router.get('/stats/dashboard', authenticateUser, async (req, res) => {
       getCurrentYearBreakdown(req.userId)
     ]);
 
+    console.log('📚 Found', readings.length, 'total reading items');
+
     // Use helper for stats calculation
     const stats = calculateReadingStats(readings, req.userPreferences.reading);
     const userConfig = req.userPreferences.reading;
@@ -556,7 +557,7 @@ router.get('/stats/dashboard', authenticateUser, async (req, res) => {
       });
     }
 
-    res.json({
+    const response = {
       overview: stats,
       currentlyReading: currentlyReading.map(r => ({
         id: r._id,
@@ -594,7 +595,16 @@ router.get('/stats/dashboard', authenticateUser, async (req, res) => {
         defaultPageTime: userConfig.defaultPageTime,
         preferredGenres: userConfig.preferredGenres || []
       }
+    };
+
+    console.log('📚 Reading dashboard response:', {
+      totalItems: readings.length,
+      currentlyReading: currentlyReading.length,
+      completed: stats.completed,
+      yearlyGoal: userConfig.yearlyGoal
     });
+
+    res.json(response);
 
   } catch (error) {
     console.error('Error fetching reading dashboard stats:', error);
@@ -603,7 +613,7 @@ router.get('/stats/dashboard', authenticateUser, async (req, res) => {
 });
 
 // GET /api/reading/analytics/heatmap - Optimized heatmap
-router.get('/analytics/heatmap', authenticateUser, async (req, res) => {
+router.get('/analytics/heatmap', authWithPreferences, async (req, res) => {
   try {
     const { year = new Date().getFullYear() } = req.query;
     
@@ -638,7 +648,7 @@ router.get('/analytics/heatmap', authenticateUser, async (req, res) => {
 });
 
 // PUT /api/reading/preferences - Update reading preferences
-router.put('/preferences', authenticateUser, async (req, res) => {
+router.put('/preferences', authWithPreferences, async (req, res) => {
   try {
     const {
       yearlyGoal,
