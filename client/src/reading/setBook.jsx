@@ -678,6 +678,19 @@ const SetBook = () => {
     loadBooksData();
   }, [filters]);
 
+  // Add the event listener useEffect here at the top level
+  useEffect(() => {
+    const handleCreateModalEvent = () => {
+      setShowCreateModal(true);
+    };
+
+    document.addEventListener('openCreateModal', handleCreateModalEvent);
+
+    return () => {
+      document.removeEventListener('openCreateModal', handleCreateModalEvent);
+    };
+  }, []);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -1233,9 +1246,666 @@ const SetBook = () => {
         </div>
       )}
 
-      {/* Additional modals would go here - Edit Modal, View Modal, Progress Modal, Session Modal */}
-      {/* For brevity, I'm showing the structure but you'd implement similar modals to the create modal */}
+      {/* Edit Modal */}
+      {showEditModal && editingBook && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-semibold text-gray-900">Edit Book</h3>
+                <button
+                  onClick={() => { 
+                    setShowEditModal(false); 
+                    setEditingBook(null); 
+                    resetForms(); 
+                  }}
+                  className="p-2 text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="w-6 h-6" />
+                </button>
+              </div>
 
+              <form onSubmit={handleEditBook} className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Title *</label>
+                    <input
+                      type="text"
+                      value={editForm.title}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, title: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Author</label>
+                    <input
+                      type="text"
+                      value={editForm.author}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, author: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Description</label>
+                  <textarea
+                    value={editForm.description}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    rows="3"
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Type</label>
+                    <select
+                      value={editForm.type}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, type: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      {types.map(type => (
+                        <option key={type} value={type}>{type.charAt(0).toUpperCase() + type.slice(1)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Genre</label>
+                    <select
+                      value={editForm.genre}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, genre: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      {genres.map(genre => (
+                        <option key={genre} value={genre}>{genre.charAt(0).toUpperCase() + genre.slice(1).replace('-', ' ')}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
+                    <select
+                      value={editForm.priority}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, priority: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      {priorities.map(priority => (
+                        <option key={priority} value={priority}>{priority.charAt(0).toUpperCase() + priority.slice(1)}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-4 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                    <select
+                      value={editForm.status}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, status: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      {statuses.map(status => (
+                        <option key={status} value={status}>{status.charAt(0).toUpperCase() + status.slice(1).replace('_', ' ')}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Total Pages</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={editForm.totalPages}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, totalPages: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Current Page</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={editForm.currentPage}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, currentPage: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Page Time (min)</label>
+                    <input
+                      type="number"
+                      min="0.5"
+                      max="30"
+                      step="0.5"
+                      value={editForm.averagePageTime}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, averagePageTime: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Published Date</label>
+                    <input
+                      type="date"
+                      value={editForm.publishedDate}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, publishedDate: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Target Date</label>
+                    <input
+                      type="date"
+                      value={editForm.targetDate}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, targetDate: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Tags</label>
+                  <input
+                    type="text"
+                    value={editForm.tags}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, tags: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="comma separated tags"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Rating (1-5)</label>
+                    <select
+                      value={editForm.rating}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, rating: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    >
+                      <option value="">No rating</option>
+                      <option value="1">1 Star</option>
+                      <option value="2">2 Stars</option>
+                      <option value="3">3 Stars</option>
+                      <option value="4">4 Stars</option>
+                      <option value="5">5 Stars</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Publisher</label>
+                    <input
+                      type="text"
+                      value={editForm.publisher}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, publisher: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Notes</label>
+                  <textarea
+                    value={editForm.notes}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, notes: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    rows="3"
+                  />
+                </div>
+
+                <div className="flex space-x-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => { 
+                      setShowEditModal(false); 
+                      setEditingBook(null); 
+                      resetForms(); 
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="flex-1 px-4 py-2 bg-gradient-to-r from-emerald-500 to-emerald-600 text-white rounded-lg hover:from-emerald-600 hover:to-emerald-700 transition-colors disabled:opacity-50"
+                  >
+                    {isSubmitting ? 'Updating...' : 'Update Book'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Modal */}
+      {showViewModal && viewingBook && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-semibold text-gray-900">Book Details</h3>
+                <button
+                  onClick={() => { 
+                    setShowViewModal(false); 
+                    setViewingBook(null); 
+                  }}
+                  className="p-2 text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="space-y-6">
+                {/* Header Information */}
+                <div className="bg-blue-50 p-6 rounded-lg">
+                  <h4 className="text-2xl font-bold text-blue-900 mb-2">{viewingBook.title}</h4>
+                  <p className="text-blue-700 text-lg mb-3">{viewingBook.author}</p>
+                  
+                  <div className="flex flex-wrap gap-3">
+                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getPriorityInfo(viewingBook.priority)}`}>
+                      {viewingBook.priority} priority
+                    </span>
+                    <span className="px-3 py-1 bg-blue-100 text-blue-700 text-sm rounded-full">
+                      {viewingBook.genre}
+                    </span>
+                    <span className="px-3 py-1 bg-purple-100 text-purple-700 text-sm rounded-full">
+                      {viewingBook.type}
+                    </span>
+                    {viewingBook.status && (
+                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                        viewingBook.status === 'completed' ? 'bg-green-100 text-green-700' :
+                        viewingBook.status === 'reading' ? 'bg-blue-100 text-blue-700' :
+                        viewingBook.status === 'on_hold' ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-gray-100 text-gray-700'
+                      }`}>
+                        {viewingBook.status.replace('_', ' ')}
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Reading Progress */}
+                {viewingBook.totalPages && (
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <h5 className="text-lg font-semibold text-gray-900 mb-3">Reading Progress</h5>
+                    <div className="space-y-3">
+                      <div className="flex justify-between text-sm text-gray-600">
+                        <span>Current Progress</span>
+                        <span>{viewingBook.currentPage || 0} / {viewingBook.totalPages} pages</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-3">
+                        <div 
+                          className="bg-blue-500 h-3 rounded-full transition-all duration-300"
+                          style={{ width: `${calculateProgress(viewingBook)}%` }}
+                        ></div>
+                      </div>
+                      <div className="text-center text-lg font-semibold text-blue-600">
+                        {calculateProgress(viewingBook)}% Complete
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Book Information */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <h5 className="text-lg font-semibold text-gray-900 mb-3">Book Information</h5>
+                    <div className="space-y-2">
+                      {viewingBook.isbn && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">ISBN:</span>
+                          <span className="text-gray-900">{viewingBook.isbn}</span>
+                        </div>
+                      )}
+                      {viewingBook.publisher && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Publisher:</span>
+                          <span className="text-gray-900">{viewingBook.publisher}</span>
+                        </div>
+                      )}
+                      {viewingBook.publishedDate && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Published:</span>
+                          <span className="text-gray-900">
+                            {new Date(viewingBook.publishedDate).toLocaleDateString()}
+                          </span>
+                        </div>
+                      )}
+                      {viewingBook.targetDate && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Target Date:</span>
+                          <span className="text-gray-900">
+                            {new Date(viewingBook.targetDate).toLocaleDateString()}
+                          </span>
+                        </div>
+                      )}
+                      {viewingBook.averagePageTime && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Page Time:</span>
+                          <span className="text-gray-900">{viewingBook.averagePageTime} min/page</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <h5 className="text-lg font-semibold text-gray-900 mb-3">Reading Stats</h5>
+                    <div className="space-y-2">
+                      {viewingBook.startedAt && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Started:</span>
+                          <span className="text-gray-900">
+                            {new Date(viewingBook.startedAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                      )}
+                      {viewingBook.completedAt && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Completed:</span>
+                          <span className="text-gray-900">
+                            {new Date(viewingBook.completedAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                      )}
+                      {viewingBook.sessions && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Sessions:</span>
+                          <span className="text-gray-900">{viewingBook.sessions.length}</span>
+                        </div>
+                      )}
+                      {viewingBook.rating && (
+                        <div className="flex justify-between items-center">
+                          <span className="text-gray-600">Rating:</span>
+                          <div className="flex items-center space-x-1">
+                            {getRatingStars(viewingBook.rating)}
+                            <span className="text-gray-900">({viewingBook.rating}/5)</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Description */}
+                {viewingBook.description && (
+                  <div>
+                    <h5 className="text-lg font-semibold text-gray-900 mb-3">Description</h5>
+                    <p className="text-gray-700 leading-relaxed">{viewingBook.description}</p>
+                  </div>
+                )}
+
+                {/* Tags */}
+                {viewingBook.tags && viewingBook.tags.length > 0 && (
+                  <div>
+                    <h5 className="text-lg font-semibold text-gray-900 mb-3">Tags</h5>
+                    <div className="flex flex-wrap gap-2">
+                      {viewingBook.tags.map(tag => (
+                        <span key={tag} className="px-3 py-1 bg-blue-100 text-blue-700 text-sm rounded-full">
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Notes */}
+                {viewingBook.notes && (
+                  <div>
+                    <h5 className="text-lg font-semibold text-gray-900 mb-3">Notes</h5>
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                      <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">{viewingBook.notes}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Reading Sessions */}
+                {viewingBook.sessions && viewingBook.sessions.length > 0 && (
+                  <div>
+                    <h5 className="text-lg font-semibold text-gray-900 mb-3">Recent Reading Sessions</h5>
+                    <div className="space-y-3 max-h-60 overflow-y-auto">
+                      {viewingBook.sessions.slice(-5).reverse().map((session, index) => (
+                        <div key={index} className="bg-gray-50 p-3 rounded-lg">
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-sm font-medium text-gray-900">
+                              {new Date(session.date).toLocaleDateString()}
+                            </span>
+                            <div className="flex items-center space-x-3 text-sm text-gray-600">
+                              {session.duration && <span>{session.duration} min</span>}
+                              {session.pagesRead && <span>{session.pagesRead} pages</span>}
+                            </div>
+                          </div>
+                          {session.notes && (
+                            <p className="text-sm text-gray-700">{session.notes}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end pt-6 border-t border-gray-200">
+                <button
+                  onClick={() => { 
+                    setShowViewModal(false); 
+                    setViewingBook(null); 
+                  }}
+                  className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Progress Update Modal */}
+      {showProgressModal && progressBook && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-semibold text-gray-900">Update Progress</h3>
+                <button
+                  onClick={() => { 
+                    setShowProgressModal(false); 
+                    setProgressBook(null); 
+                    resetForms(); 
+                  }}
+                  className="p-2 text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="mb-6">
+                <div className="bg-purple-50 p-4 rounded-lg">
+                  <h4 className="font-medium text-purple-900 mb-1">{progressBook.title}</h4>
+                  <p className="text-purple-700 text-sm">{progressBook.author}</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleUpdateProgress} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Current Page *</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max={progressBook.totalPages || undefined}
+                    value={progressForm.currentPage}
+                    onChange={(e) => setProgressForm(prev => ({ ...prev, currentPage: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    required
+                  />
+                  {progressBook.totalPages && (
+                    <p className="mt-1 text-sm text-gray-500">
+                      Out of {progressBook.totalPages} total pages
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Session Duration (minutes)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={progressForm.sessionDuration}
+                    onChange={(e) => setProgressForm(prev => ({ ...prev, sessionDuration: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    placeholder="Optional"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Session Notes</label>
+                  <textarea
+                    value={progressForm.sessionNotes}
+                    onChange={(e) => setProgressForm(prev => ({ ...prev, sessionNotes: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                    rows="3"
+                    placeholder="Optional notes about this reading session..."
+                  />
+                </div>
+
+                <div className="flex space-x-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => { 
+                      setShowProgressModal(false); 
+                      setProgressBook(null); 
+                      resetForms(); 
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-500 to-purple-600 text-white rounded-lg hover:from-purple-600 hover:to-purple-700 transition-colors disabled:opacity-50"
+                  >
+                    {isSubmitting ? 'Updating...' : 'Update Progress'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Session Logging Modal */}
+      {showSessionModal && sessionBook && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-xl font-semibold text-gray-900">Log Reading Session</h3>
+                <button
+                  onClick={() => { 
+                    setShowSessionModal(false); 
+                    setSessionBook(null); 
+                    resetForms(); 
+                  }}
+                  className="p-2 text-gray-400 hover:text-gray-600"
+                >
+                  <XMarkIcon className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="mb-6">
+                <div className="bg-orange-50 p-4 rounded-lg">
+                  <h4 className="font-medium text-orange-900 mb-1">{sessionBook.title}</h4>
+                  <p className="text-orange-700 text-sm">{sessionBook.author}</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleLogSession} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Duration (minutes) *</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={sessionForm.duration}
+                    onChange={(e) => setSessionForm(prev => ({ ...prev, duration: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    required
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Start Page</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={sessionForm.startPage}
+                      onChange={(e) => setSessionForm(prev => ({ ...prev, startPage: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">End Page</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={sessionForm.endPage}
+                      onChange={(e) => setSessionForm(prev => ({ ...prev, endPage: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Pages Read</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={sessionForm.pagesRead}
+                    onChange={(e) => setSessionForm(prev => ({ ...prev, pagesRead: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    placeholder="Will auto-calculate from start/end pages"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Session Notes</label>
+                  <textarea
+                    value={sessionForm.notes}
+                    onChange={(e) => setSessionForm(prev => ({ ...prev, notes: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                    rows="3"
+                    placeholder="Notes about this reading session..."
+                  />
+                </div>
+
+                <div className="flex space-x-3 pt-4">
+                  <button
+                    type="button"
+                    onClick={() => { 
+                      setShowSessionModal(false); 
+                      setSessionBook(null); 
+                      resetForms(); 
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="flex-1 px-4 py-2 bg-gradient-to-r from-orange-500 to-orange-600 text-white rounded-lg hover:from-orange-600 hover:to-orange-700 transition-colors disabled:opacity-50"
+                  >
+                    {isSubmitting ? 'Logging...' : 'Log Session'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 };
